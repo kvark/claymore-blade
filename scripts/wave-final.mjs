@@ -1,0 +1,16 @@
+import { chromium } from "playwright";
+const browser = await chromium.launch({ args: ["--no-sandbox"] });
+const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+const errors = [];
+page.on("pageerror", (e) => errors.push("page " + e));
+page.on("console", (m) => { if (m.type() === "error") errors.push("con " + m.text()); });
+await page.goto("http://127.0.0.1:8080/", { waitUntil: "networkidle" });
+await page.waitForTimeout(400);
+await page.screenshot({ path: "/workspace/screenshots/title-final.png" });
+await page.evaluate(() => window.__wave?.start("gonal-ripple"));
+await page.waitForTimeout(800);
+await page.screenshot({ path: "/workspace/screenshots/boss.png" });
+const t = await page.locator("body").innerText();
+console.log(t.slice(0, 400));
+console.log("errors", errors);
+await browser.close();

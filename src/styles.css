@@ -1,0 +1,48 @@
+@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=Figtree:ital,wght@0,400;0,500;0,600;1,400&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #0b0a09;
+  --color-ash: #ebe4d6;
+  --color-steel: #c8ccd4;
+  --color-dust: #8d8578;
+  --color-blood: #9a2430;
+  --color-surface: #161311;
+  --color-raised: #1f1b18;
+  --color-line: rgb(235 228 214 / 0.14);
+  --color-fog: rgb(11 10 9 / 0.72);
+  --font-display: "Cormorant Garamond", "Times New Roman", serif;
+  --font-body: "Figtree", system-ui, sans-serif;
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+    background: var(--color-ink);
+    color: var(--color-ash);
+    font-family: var(--font-body);
+  }
+  body {
+    margin: 0;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
