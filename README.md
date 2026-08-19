@@ -10,8 +10,9 @@ Repo: [github.com/kvark/claymore-blade](https://github.com/kvark/claymore-blade)
 ## Layout
 
 ```
-src/           game, combat, hex, Blade renderer
-assets/        art, sprites, WGSL
+src/           game, combat, hex, Blade renderer, juice, HUD
+assets/        art, sprites, Kenney CC0, WGSL
+assets/kenney  UI, props, FX, prompts, SFX (CC0, Kenney)
 web/           html shell for wasm
 scripts/       wasm build + static serve
 ```
@@ -40,9 +41,11 @@ Output is `dist/web`. GitHub Pages deploys that folder from `main`.
 | | |
 | --- | --- |
 | Title | New Hunt / Continue |
-| Island | WASD walk, click a town |
+| Island | WASD walk (A left, D right, W up the map), click a town |
 | Town | Hunt / Rest / Leave |
 | Hunt | click a hex to step, Cut / Guard / Wait / Raise on the bar, drag to pan, wheel to zoom |
 | Keys | 1 Cut, 2 Guard, 3 Aimed, T raise trans, Space wait, Esc back |
 
-Design: [`artifacts/DESIGN.md`](artifacts/DESIGN.md).
+Terrain/UI/SFX: [Kenney](https://kenney.nl) CC0. Faces and awakened bodies are original.
+
+Design: [`docs/DESIGN.md`](docs/DESIGN.md).

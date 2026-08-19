@@ -106,6 +106,7 @@ impl ApplicationHandler for App {
         self.surface = Some(surface);
         self.context = Some(context);
         self.window = Some(window);
+        self.game.ui.screen = [size.width.max(1) as f32, size.height.max(1) as f32];
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
@@ -128,6 +129,7 @@ impl ApplicationHandler for App {
                     };
                     renderer.resize(context, screen);
                     context.reconfigure_surface(surface, surface_config(size));
+                    self.game.ui.screen = [screen.width as f32, screen.height as f32];
                 }
             }
             WindowEvent::KeyboardInput { event, .. } => {

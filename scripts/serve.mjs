@@ -18,6 +18,8 @@ const mime = {
   ".jpeg": "image/jpeg",
   ".svg": "image/svg+xml",
   ".wgsl": "text/plain; charset=utf-8",
+  ".ogg": "audio/ogg",
+  ".mp3": "audio/mpeg",
 };
 
 const server = createServer((req, res) => {

@@ -10,8 +10,9 @@ wasm-bindgen --target web --no-typescript \
   "$TARGET/wasm32-unknown-unknown/release/claymore.wasm"
 cp -f web/index.html dist/web/index.html
 cp -f assets/favicon.svg assets/og.jpg assets/x-banner.jpg dist/web/ 2>/dev/null || true
-rm -rf dist/web/art dist/web/sprites
+rm -rf dist/web/art dist/web/sprites dist/web/kenney
 cp -a assets/art dist/web/art
 cp -a assets/sprites dist/web/sprites
+cp -a assets/kenney dist/web/kenney
 touch dist/web/.nojekyll
 echo "web build -> dist/web"

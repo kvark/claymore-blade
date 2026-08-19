@@ -3,12 +3,15 @@
 #![allow(irrefutable_let_patterns)]
 
 pub mod app;
+pub mod audio;
 pub mod catalog;
 pub mod combat;
 pub mod font;
+pub mod fx;
 pub mod game;
 pub mod gpu;
 pub mod hex;
+pub mod hud;
 pub mod io;
 pub mod iso;
 pub mod prism;

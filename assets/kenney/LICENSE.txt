@@ -1,0 +1,20 @@
+Kenney Game Assets (https://kenney.nl)
+
+License: Creative Commons Zero, CC0 1.0
+http://creativecommons.org/publicdomain/zero/1.0/
+
+Packs used in this folder:
+- Hexagon pack
+- Hexagon Buildings
+- Particle Pack
+- UI Pack
+- UI Pack - Adventure
+- Input Prompts
+- Cursor Pack
+- Isometric Miniature Dungeon
+- Rune Pack
+- RPG Audio
+- Interface Sounds
+- Impact Sounds
+
+Credit (Kenney / www.kenney.nl) is appreciated but not required.

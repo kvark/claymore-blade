@@ -59,6 +59,26 @@ pub fn camera_origin(
     (w / 2.0 - cx * zoom + pan[0], h * 0.46 - cy * zoom + pan[1])
 }
 
+pub fn hex_to_screen(
+    hex: Axial,
+    w: f32,
+    h: f32,
+    cols: i32,
+    rows: i32,
+    pan: [f32; 2],
+    zoom: f32,
+    height: f32,
+) -> [f32; 2] {
+    let size = board_size(cols, rows, w, h);
+    let (ox, oy) = camera_origin(cols, rows, size, w, h, pan, zoom);
+    let (wx, wz) = axial_to_world(hex, size);
+    let (sx, sy) = world_to_iso(wx, height, wz);
+    [
+        (ox + sx * zoom) / w,
+        (oy + sy * zoom) / h,
+    ]
+}
+
 pub fn pick_screen(
     mx: f32,
     my: f32,
@@ -98,5 +118,12 @@ mod tests {
         let (x, z) = iso_to_world(sx, sy, 1.0);
         assert!((x - 3.0).abs() < 1e-4);
         assert!((z - 2.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn hex_to_screen_is_on_canvas() {
+        let p = hex_to_screen(Axial::new(5, 4), 1280.0, 800.0, 11, 8, [0.0, 0.0], 1.0, 8.0);
+        assert!(p[0] > 0.1 && p[0] < 0.9);
+        assert!(p[1] > 0.1 && p[1] < 0.9);
     }
 }

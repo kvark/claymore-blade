@@ -1,11 +1,14 @@
 //! Mode machine: title → intro → island → town → hunt.
 
+use crate::audio;
 use crate::catalog::{self, INTRO};
 use crate::combat::{
-    act, create_battle, current_unit, legal_moves, legal_targets, run_ai, zone_for, CombatState,
-    PlayerAction, Side,
+    act, core_hex, create_battle, current_unit, legal_moves, legal_targets, run_ai, zone_for,
+    CombatState, PlayerAction, Side,
 };
+use crate::fx::Fx;
 use crate::hex::{hex_eq, Axial};
+use crate::hud;
 use crate::world::{self, apply_victory, new_world, WorldState};
 use serde::{Deserialize, Serialize};
 
@@ -28,6 +31,7 @@ pub struct Ui {
     pub zoom: f32,
     pub dragging: bool,
     pub last_mouse: [f32; 2],
+    pub screen: [f32; 2],
 }
 
 impl Default for Ui {
@@ -39,6 +43,7 @@ impl Default for Ui {
             zoom: 1.05,
             dragging: false,
             last_mouse: [0.0, 0.0],
+            screen: [1280.0, 800.0],
         }
     }
 }
@@ -62,6 +67,8 @@ pub struct Game {
     pub ui: Ui,
     pub keys: Vec<winit::keyboard::KeyCode>,
     pub has_save: bool,
+    pub fx: Fx,
+    pub step_acc: f32,
 }
 
 impl Game {
@@ -83,6 +90,8 @@ impl Game {
             ui: Ui::default(),
             keys: Vec::new(),
             has_save,
+            fx: Fx::default(),
+            step_acc: 0.0,
         }
     }
 
@@ -108,7 +117,12 @@ impl Game {
         self.world = new_world();
         self.combat = None;
         self.result_win = None;
-        self.ui = Ui::default();
+        self.ui = Ui {
+            screen: self.ui.screen,
+            ..Ui::default()
+        };
+        self.fx = Fx::default();
+        audio::confirm();
         self.persist();
     }
 
@@ -124,11 +138,48 @@ impl Game {
             } else {
                 p.mode
             };
+            audio::confirm();
         }
     }
 
     pub fn tick(&mut self, dt: f32) {
-        if self.mode != Mode::World {
+        let dt = dt.clamp(0.0, 0.08);
+        self.fx.tick(dt);
+        match self.mode {
+            Mode::Title | Mode::Intro => {
+                if self.fx.time % 0.45 < dt {
+                    self.fx.emit_mote(
+                        0.15 + (self.fx.time * 0.17).fract() * 0.7,
+                        0.2 + (self.fx.time * 0.11).sin().abs() * 0.5,
+                    );
+                }
+            }
+            Mode::World => self.tick_world(dt),
+            Mode::Combat => {
+                let hexes: Vec<Axial> = self
+                    .combat
+                    .as_ref()
+                    .map(|c| {
+                        c.units
+                            .iter()
+                            .filter(|u| !u.dead)
+                            .map(|u| core_hex(u))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if self.fx.time % 0.8 < dt {
+                    for hex in hexes {
+                        let p = self.hex_screen(hex);
+                        self.fx.emit_mote(p[0], p[1] + 0.02);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn tick_world(&mut self, dt: f32) {
+        if self.fx.hitstop > 0.0 {
             return;
         }
         let mut dx = 0.0f32;
@@ -152,43 +203,60 @@ impl Game {
         self.world.party_x = (self.world.party_x + dx * speed * dt).clamp(0.08, 0.92);
         self.world.party_y = (self.world.party_y + dy * speed * dt).clamp(0.10, 0.88);
         world::tick_hours(&mut self.world, dt * 2.4);
+        self.step_acc += dt;
+        if self.step_acc > 0.32 {
+            self.step_acc = 0.0;
+            self.fx.emit_step(self.world.party_x, self.world.party_y);
+            audio::play("step");
+        }
     }
 
     pub fn click(&mut self, nx: f32, ny: f32, screen: [f32; 2]) {
+        self.ui.screen = screen;
         match self.mode {
             Mode::Title => self.click_title(nx, ny),
-            Mode::Intro => self.mode = Mode::World,
+            Mode::Intro => {
+                audio::click();
+                self.mode = Mode::World;
+            }
             Mode::World => self.click_world(nx, ny),
             Mode::Town => self.click_town(nx, ny),
             Mode::Combat => self.click_combat(nx, ny, screen),
             Mode::Result => {
+                audio::click();
                 self.mode = Mode::World;
                 self.combat = None;
                 self.result_win = None;
                 self.persist();
             }
-            Mode::Codex => self.mode = Mode::World,
+            Mode::Codex => {
+                audio::play("close");
+                self.mode = Mode::World;
+            }
         }
     }
 
     fn click_title(&mut self, nx: f32, ny: f32) {
-        if nx > 0.08 && nx < 0.42 && ny > 0.72 && ny < 0.82 {
+        if hud::title_new().contains(nx, ny) {
             self.new_hunt();
-        } else if self.has_save && nx > 0.08 && nx < 0.42 && ny > 0.84 && ny < 0.93 {
+        } else if self.has_save && hud::title_continue().contains(nx, ny) {
             self.continue_hunt();
         }
     }
 
     fn click_world(&mut self, nx: f32, ny: f32) {
-        if ny > 0.92 && nx > 0.82 {
+        if hud::world_codex().contains(nx, ny) {
+            audio::click();
             self.mode = Mode::Codex;
             return;
         }
-        if let Some(loc) = world::nearest_location(nx, ny, 0.035) {
+        if let Some(loc) = world::nearest_location(nx, ny, 0.04) {
             let st = self.world.locations.get(loc.id).map(|s| s.status);
             if st == Some(world::WorldStatus::Locked) {
+                audio::error();
                 return;
             }
+            audio::confirm();
             self.world.party_x = loc.x;
             self.world.party_y = loc.y;
             self.world.last_town = Some(loc.id.into());
@@ -204,19 +272,25 @@ impl Game {
             .clone()
             .unwrap_or_else(|| "doga".into());
         let loc = catalog::location(&id);
-        if nx > 0.08 && nx < 0.32 && ny > 0.78 && ny < 0.88 {
+        if hud::town_hunt().contains(nx, ny) {
             if let Some(enc_id) = loc.and_then(|l| l.encounter) {
                 let st = self.world.locations.get(&id).map(|s| s.status);
                 if st == Some(world::WorldStatus::Cleared) || st == Some(world::WorldStatus::Locked)
                 {
+                    audio::error();
                     return;
                 }
+                audio::play("draw");
                 self.start_encounter(enc_id);
+            } else {
+                audio::error();
             }
-        } else if nx > 0.36 && nx < 0.56 && ny > 0.78 && ny < 0.88 {
+        } else if hud::town_rest().contains(nx, ny) {
+            audio::play("cloth");
             self.world.hours += 8.0;
             self.persist();
-        } else if nx > 0.60 && nx < 0.80 && ny > 0.78 && ny < 0.88 {
+        } else if hud::town_leave().contains(nx, ny) {
+            audio::play("close");
             self.mode = Mode::World;
         }
     }
@@ -235,25 +309,33 @@ impl Game {
         }
         self.combat = Some(combat);
         self.mode = Mode::Combat;
-        self.ui = Ui::default();
+        self.ui = Ui {
+            screen: self.ui.screen,
+            ..Ui::default()
+        };
+        self.fx = Fx::default();
         self.persist();
     }
 
     fn click_combat(&mut self, nx: f32, ny: f32, screen: [f32; 2]) {
-        // HUD buttons along the bottom.
+        let bar = hud::combat_bar();
         if ny > 0.88 {
-            if nx < 0.14 {
+            if bar.wait.contains(nx, ny) {
+                audio::click();
                 self.combat_act(PlayerAction::Wait);
-            } else if nx < 0.28 {
+            } else if bar.raise.contains(nx, ny) {
                 self.combat_act(PlayerAction::Raise);
-            } else if nx < 0.42 {
+            } else if bar.guard.contains(nx, ny) {
+                audio::click();
                 self.ui.selected_skill = Some("guard".into());
-            } else if nx < 0.56 {
+            } else if bar.cut.contains(nx, ny) {
+                audio::click();
                 self.ui.selected_skill = Some("cut".into());
-            } else if nx < 0.70 {
+            } else if bar.slot.contains(nx, ny) {
+                audio::click();
                 self.pick_skill_slot(4);
-            } else if nx > 0.88 {
-                // forfeit
+            } else if bar.forfeit.contains(nx, ny) {
+                audio::error();
                 self.finish_combat(false);
             }
             return;
@@ -275,6 +357,8 @@ impl Game {
             if targets.iter().any(|h| hex_eq(*h, hex)) {
                 self.combat_act(PlayerAction::Skill { id: skill_id, hex });
                 self.ui.selected_skill = None;
+            } else {
+                audio::error();
             }
             return;
         }
@@ -305,26 +389,155 @@ impl Game {
         };
         if let Some(id) = u.skills.get(nth) {
             self.ui.selected_skill = Some(id.clone());
+        } else {
+            audio::error();
         }
     }
 
     pub fn combat_act(&mut self, action: PlayerAction) {
         let raki = self.world.raki;
+        let Some(combat) = self.combat.as_ref() else {
+            return;
+        };
+        let before: Vec<(String, i32, bool, Axial, i32, i32)> = combat
+            .units
+            .iter()
+            .map(|u| {
+                (
+                    u.id.clone(),
+                    u.hp,
+                    u.dead,
+                    u.origin,
+                    u.trans,
+                    u.yoki,
+                )
+            })
+            .collect();
+        let actor = current_unit(combat).map(|u| (u.id.clone(), core_hex(u)));
+        let log_len = combat.log.len();
+
         let Some(combat) = self.combat.as_mut() else {
             return;
         };
-        act(combat, action, raki);
+        act(combat, action.clone(), raki);
         if current_unit(combat)
             .map(|u| u.side == Side::Enemy)
             .unwrap_or(false)
         {
             run_ai(combat);
         }
-        if let Some(win) = combat.over {
-            let id = combat.id.clone();
+        self.juice_from_act(&before, actor, &action, log_len);
+        if let Some(win) = self.combat.as_ref().and_then(|c| c.over) {
+            let id = self.combat.as_ref().unwrap().id.clone();
             self.finish_combat_id(win, &id);
         } else {
             self.persist();
+        }
+    }
+
+    fn juice_from_act(
+        &mut self,
+        before: &[(String, i32, bool, Axial, i32, i32)],
+        actor: Option<(String, Axial)>,
+        action: &PlayerAction,
+        log_len: usize,
+    ) {
+        match action {
+            PlayerAction::Move(_) => audio::play("step"),
+            PlayerAction::Raise => audio::play("raise"),
+            PlayerAction::Wait => audio::play("cloth"),
+            PlayerAction::Skill { id, .. } => {
+                if id == "guard" {
+                    audio::play("block");
+                } else {
+                    audio::play("slash");
+                }
+            }
+        }
+        if let Some((_, hex)) = actor {
+            let p = self.hex_screen(hex);
+            match action {
+                PlayerAction::Move(dest) => {
+                    let q = self.hex_screen(*dest);
+                    self.fx.emit_step(q[0], q[1]);
+                }
+                PlayerAction::Raise => self.fx.emit_raise(p[0], p[1]),
+                PlayerAction::Skill { id, hex: target } => {
+                    let q = self.hex_screen(*target);
+                    if id == "guard" {
+                        self.fx.emit_guard(p[0], p[1]);
+                    } else {
+                        self.fx.emit_hit(q[0], q[1], 0, "windup");
+                    }
+                }
+                PlayerAction::Wait => {}
+            }
+        }
+        #[derive(Clone)]
+        struct Ev {
+            hex: Axial,
+            dmg: i32,
+            kind: &'static str,
+            moved: bool,
+            trans_up: bool,
+            heal: i32,
+        }
+        let events: Vec<Ev> = self
+            .combat
+            .as_ref()
+            .map(|combat| {
+                combat
+                    .units
+                    .iter()
+                    .filter_map(|u| {
+                        let prev = before.iter().find(|b| b.0 == u.id)?;
+                        Some(Ev {
+                            hex: core_hex(u),
+                            dmg: (prev.1 - u.hp).max(0),
+                            kind: if u.dead && !prev.2 { "death" } else { "hit" },
+                            moved: u.origin.q != prev.3.q || u.origin.r != prev.3.r,
+                            trans_up: u.trans > prev.4 + 4,
+                            heal: (u.hp - prev.1).max(0),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        for ev in events {
+            let p = self.hex_screen(ev.hex);
+            if ev.moved {
+                self.fx.emit_step(p[0], p[1]);
+            }
+            if ev.dmg > 0 {
+                self.fx.emit_hit(p[0], p[1] - 0.02, ev.dmg, ev.kind);
+                audio::play("hit");
+            }
+            if ev.heal > 0 {
+                self.fx.emit_heal(p[0], p[1], ev.heal);
+            }
+            if ev.trans_up {
+                self.fx.emit_raise(p[0], p[1]);
+            }
+        }
+        let kinds: Vec<String> = self
+            .combat
+            .as_ref()
+            .map(|c| {
+                c.log
+                    .iter()
+                    .take(c.log.len().saturating_sub(log_len).min(8))
+                    .map(|l| format!("{}|{}", l.kind, l.text))
+                    .collect()
+            })
+            .unwrap_or_default();
+        for line in kinds {
+            if line.starts_with("miss|") {
+                audio::play("miss");
+            } else if line.contains("catches") {
+                audio::play("block");
+            } else if line.starts_with("sever|") {
+                audio::play("chop");
+            }
         }
     }
 
@@ -343,9 +556,12 @@ impl Game {
             self.result_title = "The board is quiet.".into();
             self.result_body =
                 "You walk back with blood on the silver. The beacon goes dark.".into();
+            self.fx.emit_win();
+            audio::confirm();
         } else {
             self.result_title = "You fall.".into();
             self.result_body = "The Organization will send another number.".into();
+            audio::error();
         }
         self.result_win = Some(win);
         self.mode = Mode::Result;
@@ -354,6 +570,7 @@ impl Game {
     }
 
     pub fn hover_hex(&mut self, nx: f32, ny: f32, screen: [f32; 2]) {
+        self.ui.screen = screen;
         if self.mode != Mode::Combat || ny > 0.88 {
             self.ui.hover = None;
             return;
@@ -372,6 +589,24 @@ impl Game {
             combat.rows,
             self.ui.pan,
             self.ui.zoom,
+        )
+    }
+
+    pub fn hex_screen(&self, hex: Axial) -> [f32; 2] {
+        let Some(combat) = self.combat.as_ref() else {
+            return [0.5, 0.5];
+        };
+        let w = self.ui.screen[0].max(1.0);
+        let h = self.ui.screen[1].max(1.0);
+        crate::iso::hex_to_screen(
+            hex,
+            w,
+            h,
+            combat.cols,
+            combat.rows,
+            self.ui.pan,
+            self.ui.zoom,
+            8.0,
         )
     }
 
@@ -407,6 +642,7 @@ impl Game {
             }
             match code {
                 winit::keyboard::KeyCode::Escape => {
+                    audio::play("close");
                     if self.mode == Mode::Combat {
                         self.mode = Mode::World;
                         self.combat = None;
@@ -414,13 +650,26 @@ impl Game {
                         self.mode = Mode::Title;
                     }
                 }
-                winit::keyboard::KeyCode::Digit1 => self.ui.selected_skill = Some("cut".into()),
-                winit::keyboard::KeyCode::Digit2 => self.ui.selected_skill = Some("guard".into()),
-                winit::keyboard::KeyCode::Digit3 => self.ui.selected_skill = Some("aimed".into()),
-                winit::keyboard::KeyCode::KeyG => self.ui.selected_skill = Some("guard".into()),
+                winit::keyboard::KeyCode::Digit1 => {
+                    audio::click();
+                    self.ui.selected_skill = Some("cut".into());
+                }
+                winit::keyboard::KeyCode::Digit2 => {
+                    audio::click();
+                    self.ui.selected_skill = Some("guard".into());
+                }
+                winit::keyboard::KeyCode::Digit3 => {
+                    audio::click();
+                    self.ui.selected_skill = Some("aimed".into());
+                }
+                winit::keyboard::KeyCode::KeyG => {
+                    audio::click();
+                    self.ui.selected_skill = Some("guard".into());
+                }
                 winit::keyboard::KeyCode::KeyT => self.combat_act(PlayerAction::Raise),
                 winit::keyboard::KeyCode::Space => {
                     if self.mode == Mode::Intro {
+                        audio::click();
                         self.mode = Mode::World;
                     } else if self.mode == Mode::Combat {
                         self.combat_act(PlayerAction::Wait);
@@ -464,5 +713,29 @@ fn write_save(s: &str) {
     #[cfg(not(target_arch = "wasm32"))]
     {
         let _ = std::fs::write("claymore.save.json", s);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wasd_signs_on_the_map() {
+        let mut g = Game::new();
+        g.mode = Mode::World;
+        g.world.party_x = 0.5;
+        g.world.party_y = 0.5;
+        g.keys = vec![winit::keyboard::KeyCode::KeyA];
+        g.tick(0.2);
+        assert!(g.world.party_x < 0.5, "A walks left on the island");
+        g.keys = vec![winit::keyboard::KeyCode::KeyD];
+        let x = g.world.party_x;
+        g.tick(0.2);
+        assert!(g.world.party_x > x, "D walks right on the island");
+        g.keys = vec![winit::keyboard::KeyCode::KeyW];
+        let y = g.world.party_y;
+        g.tick(0.2);
+        assert!(g.world.party_y < y, "W walks up the painted map");
     }
 }
