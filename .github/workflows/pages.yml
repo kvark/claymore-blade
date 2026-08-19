@@ -25,12 +25,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build:pages
-      - name: SPA entry for Pages
-        run: |
-          cd dist/client
-          cp -f _shell.html index.html
-          cp -f _shell.html 404.html
-          touch .nojekyll
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

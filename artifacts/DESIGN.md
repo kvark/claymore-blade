@@ -388,7 +388,7 @@ Claymore/                  one crate (`claymore`)
 | Island | Heightmesh + Kenney Nature / Foliage instances, one walker capsule. |
 | Town | Authored diorama or the existing 2D slide. |
 
-Determinism: `claymore-sim` ticks on a fixed seed. Blade presents. The TS sim is a port, not a second design.
+Determinism: the `claymore` crate ticks on a fixed seed. Blade presents. The TS sim is a port, not a second design.
 
 ### How this repo gets to GitHub
 
