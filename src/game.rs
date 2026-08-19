@@ -1,11 +1,12 @@
 //! Mode machine: title → intro → island → town → hunt.
 
 use crate::audio;
-use crate::catalog::{self, INTRO};
+use crate::catalog::{self};
 use crate::combat::{
     act, core_hex, create_battle, current_unit, legal_moves, legal_targets, run_ai, zone_for,
     CombatState, PlayerAction, Side,
 };
+use crate::dialog::{self, SceneId, SceneState};
 use crate::fx::Fx;
 use crate::hex::{hex_eq, Axial};
 use crate::hud;
@@ -21,6 +22,7 @@ pub enum Mode {
     Combat,
     Result,
     Codex,
+    Scene,
 }
 
 #[derive(Clone, Debug)]
@@ -69,6 +71,8 @@ pub struct Game {
     pub has_save: bool,
     pub fx: Fx,
     pub step_acc: f32,
+    pub scene: Option<SceneState>,
+    pub pending_encounter: Option<String>,
 }
 
 impl Game {
@@ -92,6 +96,8 @@ impl Game {
             has_save,
             fx: Fx::default(),
             step_acc: 0.0,
+            scene: None,
+            pending_encounter: None,
         }
     }
 
@@ -222,18 +228,25 @@ impl Game {
             Mode::World => self.click_world(nx, ny),
             Mode::Town => self.click_town(nx, ny),
             Mode::Combat => self.click_combat(nx, ny, screen),
-            Mode::Result => {
-                audio::click();
-                self.mode = Mode::World;
-                self.combat = None;
-                self.result_win = None;
-                self.persist();
-            }
+            Mode::Result => self.click_result(),
             Mode::Codex => {
                 audio::play("close");
                 self.mode = Mode::World;
             }
+            Mode::Scene => self.click_scene(nx, ny),
         }
+    }
+
+    fn click_result(&mut self) {
+        audio::click();
+        self.combat = None;
+        self.result_win = None;
+        if self.scene.is_some() {
+            self.mode = Mode::Scene;
+        } else {
+            self.mode = Mode::World;
+        }
+        self.persist();
     }
 
     fn click_title(&mut self, nx: f32, ny: f32) {
@@ -260,7 +273,21 @@ impl Game {
             self.world.party_x = loc.x;
             self.world.party_y = loc.y;
             self.world.last_town = Some(loc.id.into());
-            self.mode = Mode::Town;
+            if self.world.flags.get("raki-refused") == Some(&true) && !self.world.raki {
+                self.world.raki = true;
+                self.world.flags.remove("raki-refused");
+                self.world.flags.insert("raki-followed".into(), true);
+            }
+            if loc.id == "doga"
+                && self.world.flags.get("doga-talked") != Some(&true)
+                && self.world.locations.get("doga").map(|s| s.status)
+                    != Some(world::WorldStatus::Cleared)
+            {
+                self.scene = Some(SceneState::new(SceneId::TownDoga));
+                self.mode = Mode::Scene;
+            } else {
+                self.mode = Mode::Town;
+            }
             self.persist();
         }
     }
@@ -299,6 +326,17 @@ impl Game {
         let Some(enc) = catalog::encounter(id) else {
             return;
         };
+        if id == "gonal-ripple" && self.world.flags.get("ophelia-spoken") != Some(&true) {
+            self.pending_encounter = Some(id.into());
+            self.scene = Some(SceneState::new(SceneId::OpheliaIntro));
+            self.mode = Mode::Scene;
+            self.persist();
+            return;
+        }
+        self.begin_battle(enc);
+    }
+
+    fn begin_battle(&mut self, enc: &catalog::EncounterDef) {
         let seed = (self.world.hours as u32).wrapping_mul(997) + 13;
         let mut combat = create_battle(enc, &self.world.party, seed.max(1));
         if current_unit(&combat)
@@ -553,19 +591,127 @@ impl Game {
     fn finish_combat_id(&mut self, win: bool, id: &str) {
         if win {
             apply_victory(&mut self.world, id);
-            self.result_title = "The board is quiet.".into();
-            self.result_body =
-                "You walk back with blood on the silver. The beacon goes dark.".into();
+            self.result_title = dialog::RESULT_WIN_TITLE.into();
+            self.result_body = dialog::RESULT_WIN_BODY.into();
             self.fx.emit_win();
             audio::confirm();
+            self.scene = match id {
+                "doga-yoma" if !self.world.raki => Some(SceneState::new(SceneId::RakiJoin)),
+                "paburo-nest"
+                    if !self.world.party.iter().any(|p| p == "miria" || p == "helen") =>
+                {
+                    Some(SceneState::new(SceneId::RecruitPaburo))
+                }
+                "pieta-worm" if !self.world.party.iter().any(|p| p == "deneve") => {
+                    Some(SceneState::new(SceneId::RecruitPieta))
+                }
+                _ => None,
+            };
         } else {
-            self.result_title = "You fall.".into();
-            self.result_body = "The Organization will send another number.".into();
+            self.result_title = dialog::RESULT_LOSE_TITLE.into();
+            self.result_body = dialog::RESULT_LOSE_BODY.into();
             audio::error();
+            self.scene = None;
         }
         self.result_win = Some(win);
         self.mode = Mode::Result;
         self.combat = None;
+        self.persist();
+    }
+
+    fn click_scene(&mut self, nx: f32, ny: f32) {
+        let Some(scene) = self.scene.as_ref() else {
+            self.mode = Mode::World;
+            return;
+        };
+        if scene.at_end() {
+            let choices = scene.choices();
+            if choices.len() >= 2 {
+                if hud::scene_yes().contains(nx, ny) {
+                    self.resolve_scene(true);
+                    return;
+                }
+                if hud::scene_no().contains(nx, ny) {
+                    self.resolve_scene(false);
+                    return;
+                }
+                return;
+            }
+            if choices.len() == 1 && hud::scene_yes().contains(nx, ny) {
+                self.resolve_scene(true);
+                return;
+            }
+            // single-choice scenes also advance on any click below the panel
+            if ny > 0.72 {
+                self.resolve_scene(true);
+            }
+            return;
+        }
+        audio::click();
+        if let Some(s) = self.scene.as_mut() {
+            s.advance();
+        }
+    }
+
+    fn resolve_scene(&mut self, yes: bool) {
+        let Some(scene) = self.scene.take() else {
+            self.mode = Mode::World;
+            return;
+        };
+        match scene.id {
+            SceneId::RakiJoin => {
+                if yes {
+                    self.world.raki = true;
+                    audio::confirm();
+                } else {
+                    // He follows anyway next town — flag soft refuse.
+                    self.world.flags.insert("raki-refused".into(), true);
+                    audio::play("close");
+                }
+                self.mode = Mode::World;
+            }
+            SceneId::RecruitPaburo => {
+                if yes {
+                    for id in ["miria", "helen"] {
+                        if !self.world.party.iter().any(|p| p == id) {
+                            self.world.party.push(id.into());
+                        }
+                    }
+                    audio::confirm();
+                } else {
+                    audio::play("close");
+                }
+                self.mode = Mode::World;
+            }
+            SceneId::RecruitPieta => {
+                if yes {
+                    if !self.world.party.iter().any(|p| p == "deneve") {
+                        self.world.party.push("deneve".into());
+                    }
+                    audio::confirm();
+                } else {
+                    audio::play("close");
+                }
+                self.mode = Mode::World;
+            }
+            SceneId::OpheliaIntro => {
+                self.world.flags.insert("ophelia-spoken".into(), true);
+                audio::play("draw");
+                if let Some(id) = self.pending_encounter.take() {
+                    if let Some(enc) = catalog::encounter(&id) {
+                        self.begin_battle(enc);
+                        self.persist();
+                        return;
+                    }
+                }
+                self.mode = Mode::World;
+            }
+            SceneId::TownDoga => {
+                self.world.flags.insert("doga-talked".into(), true);
+                audio::click();
+                self.mode = Mode::Town;
+            }
+        }
         self.persist();
     }
 
@@ -632,7 +778,12 @@ impl Game {
     }
 
     pub fn intro_text(&self) -> &'static str {
-        INTRO
+        dialog::INTRO
+    }
+
+    pub fn title_flavor(&self) -> &'static str {
+        let i = (self.world.hours as usize) % dialog::TITLE_FLAVOR.len();
+        dialog::TITLE_FLAVOR[i]
     }
 
     pub fn key(&mut self, code: winit::keyboard::KeyCode, down: bool) {
@@ -646,6 +797,18 @@ impl Game {
                     if self.mode == Mode::Combat {
                         self.mode = Mode::World;
                         self.combat = None;
+                    } else if self.mode == Mode::Scene {
+                        // Decline / skip choice scenes; Ophelia still proceeds to fight.
+                        if let Some(scene) = self.scene.as_ref() {
+                            if scene.at_end() {
+                                self.resolve_scene(false);
+                            } else if let Some(s) = self.scene.as_mut() {
+                                // jump to last line so player can still choose
+                                while !s.at_end() {
+                                    s.advance();
+                                }
+                            }
+                        }
                     } else if self.mode != Mode::Title {
                         self.mode = Mode::Title;
                     }
@@ -671,6 +834,18 @@ impl Game {
                     if self.mode == Mode::Intro {
                         audio::click();
                         self.mode = Mode::World;
+                    } else if self.mode == Mode::Scene {
+                        if let Some(scene) = self.scene.as_ref() {
+                            if scene.at_end() {
+                                // default to the affirmative / only choice
+                                self.resolve_scene(true);
+                            } else {
+                                audio::click();
+                                if let Some(s) = self.scene.as_mut() {
+                                    s.advance();
+                                }
+                            }
+                        }
                     } else if self.mode == Mode::Combat {
                         self.combat_act(PlayerAction::Wait);
                     }

@@ -380,6 +380,7 @@ impl Renderer {
                 Mode::Combat => self.draw_combat_overlay(&mut pass, game, w, h),
                 Mode::Result => self.draw_result(&mut pass, game, w, h),
                 Mode::Codex => self.draw_codex(&mut pass, game, w, h),
+                Mode::Scene => self.draw_scene(&mut pass, game, w, h),
             }
         }
     }
@@ -508,6 +509,7 @@ impl Renderer {
         );
         self.text(&mut rc, "CLAYMORE", 0.08, 0.12, 0.028);
         self.text(&mut rc, "NO. 47", 0.08, 0.20, 0.016);
+        self.text(&mut rc, game.title_flavor(), 0.08, 0.28, 0.012);
         self.kenney_btn(&mut rc, "kenney/ui/button.png", hud::title_new(), "NEW HUNT", false);
         if game.has_save {
             self.kenney_btn(
@@ -901,6 +903,60 @@ impl Renderer {
             self.text(&mut rc, w.title, x + 0.02, y + 0.235, 0.010);
         }
         self.text(&mut rc, "CLICK TO CLOSE", 0.08, 0.90, 0.014);
+    }
+
+
+    fn draw_scene(&self, pass: &mut gpu::RenderCommandEncoder, game: &Game, _w: f32, _h: f32) {
+        let mut rc = pass.with(&self.flat);
+        let art = match game.scene.as_ref().map(|s| s.id) {
+            Some(crate::dialog::SceneId::OpheliaIntro) => "art/battle-gonal.jpg",
+            Some(crate::dialog::SceneId::TownDoga) => "art/tavern.jpg",
+            Some(crate::dialog::SceneId::RecruitPaburo) => "art/battle-paburo.jpg",
+            Some(crate::dialog::SceneId::RecruitPieta) => "art/battle-pieta.jpg",
+            _ => "art/title.jpg",
+        };
+        self.blit(&mut rc, self.tex(art), [0.0, 0.0, 1.0, 1.0], [0.45, 0.42, 0.38, 1.0]);
+        self.rect(&mut rc, [0.0, 0.0, 1.0, 1.0], [0.04, 0.03, 0.02, 0.55]);
+        self.blit_px(
+            &mut rc,
+            self.tex("kenney/ui/panel-brown.png"),
+            [0.08, 0.22, 0.70, 0.42],
+            [0.50, 0.40, 0.30, 0.92],
+        );
+        if let Some(scene) = game.scene.as_ref() {
+            if let Some(line) = scene.current() {
+                self.text(&mut rc, line.speaker, 0.12, 0.28, 0.016);
+                // wrap-ish: single line may be long; draw once
+                self.text(&mut rc, line.text, 0.12, 0.38, 0.014);
+                let step = format!("{}/{}", scene.step + 1, scene.lines().len());
+                self.text(&mut rc, &step, 0.12, 0.52, 0.011);
+            }
+            if scene.at_end() {
+                let choices = scene.choices();
+                if choices.len() >= 1 {
+                    self.kenney_btn(
+                        &mut rc,
+                        "kenney/ui/button.png",
+                        crate::hud::scene_yes(),
+                        choices[0].label,
+                        true,
+                    );
+                }
+                if choices.len() >= 2 {
+                    self.kenney_btn(
+                        &mut rc,
+                        "kenney/ui/button-grey.png",
+                        crate::hud::scene_no(),
+                        choices[1].label,
+                        false,
+                    );
+                }
+            } else {
+                self.prompt(&mut rc, "kenney/prompt/space.png", 0.12, 0.84, 0.05);
+                self.text(&mut rc, "CONTINUE", 0.19, 0.855, 0.014);
+            }
+        }
+        self.draw_fx(&mut rc, game);
     }
 
     fn draw_fx(&self, rc: &mut PipeEnc<'_>, game: &Game) {
