@@ -1,4 +1,5 @@
 import { useGame } from "@/game/store";
+import { asset } from "@/lib/asset";
 
 export function TitleScreen({ hasSave }: { hasSave: boolean }) {
   const newHunt = useGame((s) => s.newHunt);
@@ -7,7 +8,7 @@ export function TitleScreen({ hasSave }: { hasSave: boolean }) {
 
   return (
     <div className="absolute inset-0">
-      <img src="/art/title.jpg" alt="" className="absolute inset-0 h-full w-full object-cover" />
+      <img src={asset("/art/title.jpg")} alt="" className="absolute inset-0 h-full w-full object-cover" />
       <div className="absolute inset-0 bg-linear-to-r from-ink via-ink/70 to-ink/20" />
       <div className="absolute inset-0 bg-linear-to-t from-ink via-transparent to-ink/30" />
       <div className="relative flex min-h-dvh flex-col justify-end px-6 pt-16 pb-10 sm:justify-center sm:px-12">

@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { GROK_PROVIDERS, authEnabled, signIn } from "@/lib/auth/client";
+import { asset } from "@/lib/asset";
 
 export const Route = createFileRoute("/login")({ component: Login });
 
@@ -7,7 +8,7 @@ function Login() {
   return (
     <main className="relative grid min-h-dvh place-items-center overflow-hidden bg-ink px-5 text-ash">
       <img
-        src="/art/title.jpg"
+        src={asset("/art/title.jpg")}
         alt=""
         className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-35"
       />

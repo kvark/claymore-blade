@@ -1,8 +1,8 @@
 //! CPU hunt board. The web canvas and the Blade rasterizer both consume this.
 
-use claymore_scene::iso::terrain_height;
-use claymore_scene::prism::{tile_instance, TileInstance};
-use claymore_sim::hex::Axial;
+use crate::hex::Axial;
+use crate::iso::terrain_height;
+use crate::prism::{tile_instance, TileInstance};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -67,6 +67,6 @@ mod tests {
     fn instances_match_tiles() {
         let board = HuntBoard::new(11, 9, 1.0);
         assert_eq!(board.instances().len(), 11 * 9);
-        assert_eq!(board.center(), claymore_sim::Axial::new(5, 4));
+        assert_eq!(board.center(), crate::Axial::new(5, 4));
     }
 }

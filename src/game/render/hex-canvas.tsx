@@ -19,6 +19,7 @@ import {
   type Axial,
 } from "@/game/sim/hex";
 import { useGame } from "@/game/store";
+import { asset } from "@/lib/asset";
 
 const images = new Map<string, HTMLImageElement>();
 function img(src: string) {
@@ -157,7 +158,7 @@ export function HexCanvas() {
       ctx.clearRect(0, 0, w, h);
       if (!battle) return;
 
-      const bg = img(battle.art || "/art/battle-doga.jpg");
+      const bg = img(battle.art || asset("/art/battle-doga.jpg"));
       if (bg.complete && bg.naturalWidth) {
         const scale = Math.max(w / bg.naturalWidth, h / bg.naturalHeight);
         const dw = bg.naturalWidth * scale;

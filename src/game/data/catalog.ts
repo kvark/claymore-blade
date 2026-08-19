@@ -1,4 +1,5 @@
 import type { LocationDef, SkillDef, UnitTemplate } from "@/game/sim/types";
+import { asset } from "@/lib/asset";
 
 export const SKILLS: Record<string, SkillDef> = {
   cut: {
@@ -297,8 +298,8 @@ export const WARRIORS: Record<string, UnitTemplate> = {
     title: "No. 47",
     rank: 47,
     side: "player",
-    portrait: "/art/clare.jpg",
-    sprite: "/sprites/clare.png",
+    portrait: asset("/art/clare.jpg"),
+    sprite: asset("/sprites/clare.png"),
     stats: { S: 6, A: 8, C: 9, P: 11, W: 7 },
     skills: ["cut", "aimed", "guard", "read", "flash", "wind", "knit", "rest", "drop"],
     trans: 8,
@@ -313,8 +314,8 @@ export const WARRIORS: Record<string, UnitTemplate> = {
     title: "No. 6 · Phantom",
     rank: 6,
     side: "player",
-    portrait: "/art/miria.jpg",
-    sprite: "/sprites/miria.png",
+    portrait: asset("/art/miria.jpg"),
+    sprite: asset("/sprites/miria.png"),
     stats: { S: 8, A: 12, C: 10, P: 9, W: 8 },
     skills: ["cut", "guard", "phantom", "aimed", "rest"],
     trans: 18,
@@ -329,8 +330,8 @@ export const WARRIORS: Record<string, UnitTemplate> = {
     title: "No. 22 · Stretching",
     rank: 22,
     side: "player",
-    portrait: "/art/helen.jpg",
-    sprite: "/sprites/helen.png",
+    portrait: asset("/art/helen.jpg"),
+    sprite: asset("/sprites/helen.png"),
     stats: { S: 10, A: 8, C: 7, P: 7, W: 6 },
     skills: ["cut", "stretch", "guard", "rest"],
     trans: 22,
@@ -345,8 +346,8 @@ export const WARRIORS: Record<string, UnitTemplate> = {
     title: "No. 15 · Regeneration",
     rank: 15,
     side: "player",
-    portrait: "/art/deneve.jpg",
-    sprite: "/sprites/deneve.png",
+    portrait: asset("/art/deneve.jpg"),
+    sprite: asset("/sprites/deneve.png"),
     stats: { S: 11, A: 6, C: 11, P: 6, W: 8 },
     skills: ["cut", "guard", "regen", "knit", "rest"],
     trans: 16,
@@ -363,8 +364,8 @@ export const ENEMIES: Record<string, UnitTemplate> = {
     name: "Yoma",
     title: "Flesh-eater",
     side: "enemy",
-    portrait: "/sprites/yoma.png",
-    sprite: "/sprites/yoma.png",
+    portrait: asset("/sprites/yoma.png"),
+    sprite: asset("/sprites/yoma.png"),
     stats: { S: 7, A: 6, C: 3, P: 5, W: 2 },
     skills: ["claw", "lunge"],
     trans: 35,
@@ -378,8 +379,8 @@ export const ENEMIES: Record<string, UnitTemplate> = {
     name: "Long Yoma",
     title: "Jointed",
     side: "enemy",
-    portrait: "/sprites/yoma.png",
-    sprite: "/sprites/yoma.png",
+    portrait: asset("/sprites/yoma.png"),
+    sprite: asset("/sprites/yoma.png"),
     stats: { S: 8, A: 7, C: 4, P: 6, W: 3 },
     skills: ["claw", "stretch"],
     trans: 48,
@@ -394,8 +395,8 @@ export const ENEMIES: Record<string, UnitTemplate> = {
     title: "Awakened No. 4 · Ripple",
     rank: 4,
     side: "enemy",
-    portrait: "/art/ophelia.jpg",
-    sprite: "/sprites/ophelia.png",
+    portrait: asset("/art/ophelia.jpg"),
+    sprite: asset("/sprites/ophelia.png"),
     stats: { S: 13, A: 10, C: 8, P: 8, W: 6 },
     skills: ["ripple", "claw", "slam"],
     trans: 88,
@@ -419,8 +420,8 @@ export const ENEMIES: Record<string, UnitTemplate> = {
     name: "Awakened Worm",
     title: "Northern Campaign · 5 cells",
     side: "enemy",
-    portrait: "/sprites/worm.png",
-    sprite: "/sprites/worm.png",
+    portrait: asset("/sprites/worm.png"),
+    sprite: asset("/sprites/worm.png"),
     stats: { S: 14, A: 6, C: 5, P: 5, W: 4 },
     skills: ["whip", "slam", "claw"],
     trans: 80,
@@ -454,7 +455,7 @@ export const LOCATIONS: LocationDef[] = [
     kind: "village",
     encounter: "doga-yoma",
     deadline: 36,
-    art: "/art/tavern.jpg",
+    art: asset("/art/tavern.jpg"),
   },
   {
     id: "stora",
@@ -464,7 +465,7 @@ export const LOCATIONS: LocationDef[] = [
     x: 0.36,
     y: 0.66,
     kind: "village",
-    art: "/art/tavern.jpg",
+    art: asset("/art/tavern.jpg"),
   },
   {
     id: "hanel",
@@ -474,7 +475,7 @@ export const LOCATIONS: LocationDef[] = [
     x: 0.33,
     y: 0.48,
     kind: "city",
-    art: "/art/town-hanel.jpg",
+    art: asset("/art/town-hanel.jpg"),
   },
   {
     id: "shire",
@@ -484,7 +485,7 @@ export const LOCATIONS: LocationDef[] = [
     x: 0.5,
     y: 0.32,
     kind: "shrine",
-    art: "/art/town-shire.jpg",
+    art: asset("/art/town-shire.jpg"),
   },
   {
     id: "paburo",
@@ -496,7 +497,7 @@ export const LOCATIONS: LocationDef[] = [
     kind: "wild",
     encounter: "paburo-nest",
     deadline: 72,
-    art: "/art/battle-paburo.jpg",
+    art: asset("/art/battle-paburo.jpg"),
   },
   {
     id: "lacroa",
@@ -506,7 +507,7 @@ export const LOCATIONS: LocationDef[] = [
     x: 0.62,
     y: 0.5,
     kind: "village",
-    art: "/art/tavern.jpg",
+    art: asset("/art/tavern.jpg"),
   },
   {
     id: "gonal",
@@ -518,7 +519,7 @@ export const LOCATIONS: LocationDef[] = [
     kind: "village",
     encounter: "gonal-ripple",
     deadline: 96,
-    art: "/art/battle-gonal.jpg",
+    art: asset("/art/battle-gonal.jpg"),
   },
   {
     id: "pieta",
@@ -530,7 +531,7 @@ export const LOCATIONS: LocationDef[] = [
     kind: "city",
     encounter: "pieta-worm",
     deadline: 140,
-    art: "/art/town-pieta.jpg",
+    art: asset("/art/town-pieta.jpg"),
   },
   {
     id: "maw",
@@ -540,7 +541,7 @@ export const LOCATIONS: LocationDef[] = [
     x: 0.18,
     y: 0.4,
     kind: "keep",
-    art: "/art/town-maw.jpg",
+    art: asset("/art/town-maw.jpg"),
   },
   {
     id: "sutafu",
@@ -550,19 +551,19 @@ export const LOCATIONS: LocationDef[] = [
     x: 0.78,
     y: 0.48,
     kind: "office",
-    art: "/art/town-sutafu.jpg",
+    art: asset("/art/town-sutafu.jpg"),
   },
 ];
 
 export const LORE = [
-  { id: "teresa", name: "Teresa", title: "No. 1 · Faint Smile", portrait: "/art/teresa.jpg" },
-  { id: "irene", name: "Irene", title: "No. 2 · Quicksword", portrait: "/art/irene.jpg" },
-  { id: "galatea", name: "Galatea", title: "No. 3 · God-Eye", portrait: "/art/galatea.jpg" },
-  { id: "flora", name: "Flora", title: "No. 8 · Windcutter", portrait: "/art/flora.jpg" },
-  { id: "jean", name: "Jean", title: "No. 9 · Drill Sword", portrait: "/art/jean.jpg" },
-  { id: "raki", name: "Raki", title: "Human companion", portrait: "/art/raki.jpg" },
-  { id: "handler", name: "Handler", title: "The Organization", portrait: "/art/handler.jpg" },
-  { id: "priscilla", name: "Priscilla", title: "Abyss", portrait: "/art/priscilla.jpg" },
+  { id: "teresa", name: "Teresa", title: "No. 1 · Faint Smile", portrait: asset("/art/teresa.jpg") },
+  { id: "irene", name: "Irene", title: "No. 2 · Quicksword", portrait: asset("/art/irene.jpg") },
+  { id: "galatea", name: "Galatea", title: "No. 3 · God-Eye", portrait: asset("/art/galatea.jpg") },
+  { id: "flora", name: "Flora", title: "No. 8 · Windcutter", portrait: asset("/art/flora.jpg") },
+  { id: "jean", name: "Jean", title: "No. 9 · Drill Sword", portrait: asset("/art/jean.jpg") },
+  { id: "raki", name: "Raki", title: "Human companion", portrait: asset("/art/raki.jpg") },
+  { id: "handler", name: "Handler", title: "The Organization", portrait: asset("/art/handler.jpg") },
+  { id: "priscilla", name: "Priscilla", title: "Abyss", portrait: asset("/art/priscilla.jpg") },
 ];
 
 export type EncounterDef = {
@@ -583,7 +584,7 @@ export const ENCOUNTERS: Record<string, EncounterDef> = {
     title: "Doga · the well",
     briefing:
       "Two of them wore neighbors yesterday. A cut is enough. Raise the bar if you must. Do not max it.",
-    art: "/art/battle-doga.jpg",
+    art: asset("/art/battle-doga.jpg"),
     cols: 11,
     rows: 8,
     enemies: [
@@ -602,7 +603,7 @@ export const ENCOUNTERS: Record<string, EncounterDef> = {
     title: "Paburo · the nest",
     briefing:
       "Miria is already here. Helen laughs when the first arm leaves a shoulder. Stay out of the long lines.",
-    art: "/art/battle-paburo.jpg",
+    art: asset("/art/battle-paburo.jpg"),
     cols: 11,
     rows: 9,
     enemies: [
@@ -622,7 +623,7 @@ export const ENCOUNTERS: Record<string, EncounterDef> = {
     title: "Gonal · Ophelia",
     briefing:
       "Ophelia is four hexes of wrong anatomy. Cut the arm. Cut the tail. The rings will still grow.",
-    art: "/art/battle-gonal.jpg",
+    art: asset("/art/battle-gonal.jpg"),
     cols: 12,
     rows: 9,
     enemies: [{ template: "ophelia", origin: { q: 7, r: 4 }, facing: 3 }],
@@ -638,7 +639,7 @@ export const ENCOUNTERS: Record<string, EncounterDef> = {
     title: "Pieta · the north",
     briefing:
       "Deneve will not die. The worm occupies five cells. Sever the tail or live in the whip.",
-    art: "/art/battle-pieta.jpg",
+    art: asset("/art/battle-pieta.jpg"),
     cols: 13,
     rows: 10,
     enemies: [

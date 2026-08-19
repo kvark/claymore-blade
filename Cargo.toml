@@ -1,14 +1,15 @@
-[workspace]
-resolver = "2"
-members = ["crates/claymore-sim", "crates/claymore-scene", "crates/claymore-view"]
-
-[workspace.package]
+[package]
+name = "claymore"
+version = "0.1.0"
 edition = "2021"
 license = "MIT"
-version = "0.1.0"
 repository = "https://github.com/kvark/claymore-blade"
+description = "Roleplaying tactical hunt. Blade raster, isometric hex."
 
-[workspace.dependencies]
+[lib]
+path = "rust/lib.rs"
+
+[dependencies]
 bytemuck = { version = "1", features = ["derive"] }
 glam = { version = "0.29", features = ["mint"] }
 log = "0.4"
@@ -16,7 +17,6 @@ mint = "0.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-# Blade is git: https://github.com/kvark/blade
-# claymore-view --features gpu will take:
-#   blade-graphics, blade-render  (Rasterizer, WebGL2)
-#   blade-engine                  (RenderBackend::Rasterizer, native window)
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+console_error_panic_hook = "0.1"

@@ -1,8 +1,8 @@
 //! Procedural hex prism. Same mesh Blade instances and the canvas projects.
 
 use bytemuck::{Pod, Zeroable};
-use claymore_sim::hex::axial_to_world;
-use claymore_sim::Axial;
+use crate::hex::axial_to_world;
+use crate::Axial;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]

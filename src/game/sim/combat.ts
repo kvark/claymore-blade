@@ -1,4 +1,5 @@
 import { ENCOUNTERS, ENEMIES, SKILLS, WARRIORS, derived } from "@/game/data/catalog";
+import { asset } from "@/lib/asset";
 import {
   facingToward,
   hexCone,
@@ -144,7 +145,7 @@ export function createBattle(
     zones: [],
     log: [],
     briefing: enc.briefing,
-    art: enc.art ?? "/art/battle-doga.jpg",
+    art: enc.art ?? asset("/art/battle-doga.jpg"),
   };
   pushLog(state, "info", `${enc.title}. ${units.filter((u) => u.side === "enemy").length} on the board.`);
   beginTurn(state);

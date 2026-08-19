@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { LOCATIONS, WARRIORS } from "@/game/data/catalog";
 import { nearestLocation } from "@/game/sim/world";
 import { useGame } from "@/game/store";
+import { asset } from "@/lib/asset";
 
 const CROP = { sx: 0.06, sy: 0.04, sw: 0.88, sh: 0.86 };
 
@@ -17,7 +18,7 @@ export function WorldCanvas() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     const map = new Image();
-    map.src = "/art/world-map.jpg";
+    map.src = asset("/art/world-map.jpg");
     let raf = 0;
     let last = performance.now();
     const loop = (now: number) => {

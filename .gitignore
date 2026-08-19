@@ -1,6 +1,7 @@
 node_modules/
 target/
 dist/
+dist-ssr/
 .project_id
 .github_repo
 .env

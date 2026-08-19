@@ -1,6 +1,6 @@
 //! True isometric (30°) of a Y-up world. Matches `src/game/sim/hex.ts`.
 
-use claymore_sim::hex::{axial_to_world, world_to_axial, Axial};
+use crate::hex::{axial_to_world, world_to_axial, Axial};
 use glam::{Mat4, Quat, Vec3};
 
 pub const ISO_COS: f32 = 0.866_025_4;
@@ -49,7 +49,7 @@ pub fn pick_hex(sx: f32, sy: f32, size: f32) -> Axial {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use claymore_sim::hex::Axial;
+    use crate::hex::Axial;
 
     #[test]
     fn iso_roundtrip() {

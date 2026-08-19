@@ -24,7 +24,7 @@ const chapters = [
   },
   {
     t: "Blade",
-    b: "Native target is Blade (Rust): claymore-sim as the rules crate, blade-engine for the island and hunt scenes, egui for the tavern. This preview is the rules-accurate web slice — Vulkan stays on the metal.",
+    b: "Native target is Blade (Rust): one crate in rust/ — hex rules, isometric hunt, Rasterizer on WebGL2. This preview is the same rules in the browser. GitHub Pages hosts the static build.",
   },
 ];
 

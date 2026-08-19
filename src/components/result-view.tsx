@@ -1,4 +1,5 @@
 import { useGame } from "@/game/store";
+import { asset } from "@/lib/asset";
 
 export function ResultView() {
   const result = useGame((s) => s.result);
@@ -7,7 +8,7 @@ export function ResultView() {
   return (
     <div className="absolute inset-0">
       <img
-        src={result.win ? "/art/title.jpg" : "/art/ophelia.jpg"}
+        src={result.win ? asset("/art/title.jpg") : asset("/art/ophelia.jpg")}
         alt=""
         className="absolute inset-0 h-full w-full object-cover opacity-40"
       />

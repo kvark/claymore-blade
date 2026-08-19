@@ -1,6 +1,7 @@
 import { ENCOUNTERS, locById, WARRIORS } from "@/game/data/catalog";
 import { clockLabel } from "@/game/sim/world";
 import { useGame } from "@/game/store";
+import { asset } from "@/lib/asset";
 
 export function TownView() {
   const world = useGame((s) => s.world);
@@ -14,7 +15,7 @@ export function TownView() {
   const huntReady = !!enc && !!st && (st.status === "beacon" || st.status === "dead");
   const backdrop =
     loc.art ??
-    (loc.kind === "village" || loc.kind === "city" ? "/art/tavern.jpg" : "/art/battle-doga.jpg");
+    (loc.kind === "village" || loc.kind === "city" ? asset("/art/tavern.jpg") : asset("/art/battle-doga.jpg"));
 
   return (
     <div className="absolute inset-0">
@@ -78,7 +79,7 @@ export function TownView() {
           })}
           {world.raki && (
             <div className="w-20">
-              <img src="/art/raki.jpg" alt="" className="aspect-2/3 w-full rounded-md object-cover" />
+              <img src={asset("/art/raki.jpg")} alt="" className="aspect-2/3 w-full rounded-md object-cover" />
               <p className="mt-1 text-center text-[11px] text-dust">Raki</p>
             </div>
           )}

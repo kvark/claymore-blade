@@ -363,14 +363,11 @@ Save is local (`claymore.save.v1`). Signed-in hunters also write a cloud row.
 Claymore is a **Blade** game. The old note that "there is no wasm path" is wrong: `blade-graphics` already targets **WebGL2**, and `blade-render` now has a **rasterization** pipeline (`blade-render::Rasterizer`, `raster.wgsl`) that does not need hardware ray tracing. `blade-engine` picks it with `RenderBackend::Rasterizer`. The full RT engine stays a native extra, not the hunt view.
 
 ```
-Claymore/
-  crates/
-    claymore-sim/      # hex, hit table, scale. no GPU. source of truth
-    claymore-scene/    # isometric camera + hex-prism mesh (CPU)
-    claymore-view/     # HuntBoard + (feature gpu) Rasterizer wiring
-  src/game/            # web vertical slice: same rules, same iso math
-    sim/               # mirrors claymore-sim (TS)
-    render/hex-canvas  # projects claymore-scene prisms in 2D until wasm lands
+Claymore/                  one crate (`claymore`)
+  rust/                    hex, combat, iso camera, prism mesh, HuntBoard
+  src/game/                web slice — same rules, same iso math
+    sim/                   mirrors rust/hex + rust/combat
+    render/hex-canvas      projects the prism mesh until wasm Rasterizer lands
 ```
 
 ### What runs where
@@ -378,8 +375,8 @@ Claymore/
 | Surface | Backend | Notes |
 | --- | --- | --- |
 | Hunt (this preview) | Canvas 2D isometric of the **same prism mesh / 30° camera** | Playable now. Drag to pan, wheel to zoom. |
-| Hunt (native) | `blade-render::Rasterizer` + instanced hex prisms | `cargo run -p claymore-view` once `gpu` feature is wired to a window |
-| Hunt (web, next) | same Rasterizer on `blade-graphics` WebGL2 | `wasm32-unknown-unknown`, canvas id `blade` |
+| Hunt (native) | `blade-render::Rasterizer` + instanced hex prisms | same crate, later a windowed bin |
+| Hunt (web, next) | same Rasterizer on `blade-graphics` WebGL2 | `wasm32-unknown-unknown` |
 | Island / town | still the painted map + slides | Blade heightmesh later |
 | Ray-traced beauty | `RenderBackend::RayTracer` | Vulkan + RT hardware only. Not the game. |
 
@@ -387,7 +384,7 @@ Claymore/
 
 | Mode | What Rasterizer draws |
 | --- | --- |
-| Hunt | Instanced hex prisms (`claymore-scene::unit_hex_prism`), decal zones, billboard units. No Rapier — the grid is the physics. Camera is isometric (narrow FOV from `hunt_camera`). |
+| Hunt | Instanced hex prisms (`unit_hex_prism`), decal zones, billboard units. No Rapier — the grid is the physics. Camera is isometric (narrow FOV from `hunt_camera`). |
 | Island | Heightmesh + Kenney Nature / Foliage instances, one walker capsule. |
 | Town | Authored diorama or the existing 2D slide. |
 
@@ -395,7 +392,7 @@ Determinism: `claymore-sim` ticks on a fixed seed. Blade presents. The TS sim is
 
 ### How this repo gets to GitHub
 
-Remote is [kvark/claymore-blade](https://github.com/kvark/claymore-blade). Commit the crates + the isometric slice and push `main`. Native `cargo test` does not need a GPU. WebGL Rasterizer is the next compile, not a rewrite.
+Remote is [kvark/claymore-blade](https://github.com/kvark/claymore-blade). GitHub Pages is [kvark.github.io/claymore-blade](https://kvark.github.io/claymore-blade/) (`GITHUB_PAGES=1` static SPA, Actions on `main`). `cargo test` needs no GPU.
 
 
 ---

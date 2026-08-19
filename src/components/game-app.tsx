@@ -10,6 +10,7 @@ import { ResultView } from "./result-view";
 import { TitleScreen } from "./title-screen";
 import { TownView } from "./town-view";
 import { WorldHud } from "./world-hud";
+import { asset } from "@/lib/asset";
 
 export function GameApp() {
   const mode = useGame((s) => s.mode);
@@ -76,7 +77,7 @@ function IntroCrawl() {
       className="absolute inset-0 flex flex-col items-center justify-center bg-ink px-6 text-left"
       onClick={() => useGame.getState().setMode("world")}
     >
-      <img src="/art/title.jpg" alt="" className="absolute inset-0 h-full w-full object-cover opacity-25" />
+      <img src={asset("/art/title.jpg")} alt="" className="absolute inset-0 h-full w-full object-cover opacity-25" />
       <div className="absolute inset-0 bg-linear-to-t from-ink via-ink/80 to-ink/50" />
       <div className="relative max-w-lg">
         <p className="font-display text-xs tracking-[0.32em] text-dust uppercase">Sutafu · branding hall</p>

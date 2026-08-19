@@ -1,9 +1,4 @@
-//! Blade-render raster path. Enable with `--features gpu`.
-//!
-//! `blade-render::Rasterizer` is the web-safe pipeline (no hardware RT).
-//! `blade-graphics` on `wasm32` is WebGL2. Native uses Vulkan / Metal / GLES.
-//!
-//! Wiring (native or wasm, once a `gpu::Context` exists):
+//! `blade-render::Rasterizer` on WebGL2 (wasm) or Vulkan/Metal/GLES (native).
 //!
 //! ```ignore
 //! let mut raster = blade_render::Rasterizer::new(
@@ -11,8 +6,8 @@
 //! );
 //! raster.render(
 //!     &mut pass,
-//!     &camera,          // from claymore_scene::iso::hunt_camera
-//!     &objects,         // instanced hex prisms + billboard units
+//!     &camera,
+//!     &objects,
 //!     &asset_hub,
 //!     environment_map,
 //!     blade_render::RasterConfig {
@@ -26,15 +21,11 @@
 //! ```
 //!
 //! Engine shortcut: `blade_engine::config::RenderBackend::Rasterizer`.
-//! Full-stack `blade-engine` still wants a native window + asset folders;
-//! this crate keeps the hunt scene independent so the same board feeds
-//! Rasterizer *or* the canvas preview.
-
-use claymore_scene::iso::hunt_camera;
-use claymore_scene::unit_hex_prism;
-use claymore_sim::Axial;
 
 use crate::board::HuntBoard;
+use crate::iso::hunt_camera;
+use crate::prism::unit_hex_prism;
+use crate::Axial;
 
 pub const RASTER_BACKEND: &str = "blade-render::Rasterizer";
 pub const WEB_API: &str = "WebGL2";
