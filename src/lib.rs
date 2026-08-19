@@ -6,6 +6,7 @@ pub mod app;
 pub mod audio;
 pub mod catalog;
 pub mod combat;
+pub mod dialog;
 pub mod font;
 pub mod fx;
 pub mod game;
