@@ -1,24 +1,48 @@
 # Claymore
 
-Roleplaying tactical hunt. Island map, isometric hex combat, Claymore series roster. Built on [Blade](https://github.com/kvark/blade).
+Roleplaying tactical hunt. Island map, isometric hex combat, Claymore series roster.
+
+One Rust crate. [Blade](https://github.com/kvark/blade) draws the same hunt on desktop (Vulkan) and in the browser (WebGL2).
 
 Play: [kvark.github.io/claymore-blade](https://kvark.github.io/claymore-blade/)  
 Repo: [github.com/kvark/claymore-blade](https://github.com/kvark/claymore-blade)
 
-## One crate
+## Layout
 
 ```
-rust/          hex, combat, iso camera, hex-prism mesh, hunt board
-src/game/      web slice (same rules, Canvas 2D until wasm Rasterizer)
+src/           game, combat, hex, Blade renderer
+assets/        art, sprites, WGSL
+web/           html shell for wasm
+scripts/       wasm build + static serve
 ```
+
+## Native
 
 ```bash
+cargo run
 cargo test
-npm install
-npm run dev          # live preview
-npm run build:pages  # static SPA for GitHub Pages
 ```
 
-Hunt is isometric (drag / wheel). GitHub Pages deploys from `main` via Actions. Design: [`artifacts/DESIGN.md`](artifacts/DESIGN.md).
+Needs a GPU. Saves to `claymore.save.json`.
 
-Kenney pull list: design doc §15. First: Hexagon Pack, Isometric Nature, Isometric Miniature Dungeon.
+## Web
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.127 --locked
+bash scripts/build-web.sh
+```
+
+Output is `dist/web`. GitHub Pages deploys that folder from `main`.
+
+## Controls
+
+| | |
+| --- | --- |
+| Title | New Hunt / Continue |
+| Island | WASD walk, click a town |
+| Town | Hunt / Rest / Leave |
+| Hunt | click a hex to step, Cut / Guard / Wait / Raise on the bar, drag to pan, wheel to zoom |
+| Keys | 1 Cut, 2 Guard, 3 Aimed, T raise trans, Space wait, Esc back |
+
+Design: [`artifacts/DESIGN.md`](artifacts/DESIGN.md).

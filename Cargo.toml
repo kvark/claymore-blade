@@ -4,19 +4,56 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/kvark/claymore-blade"
-description = "Roleplaying tactical hunt. Blade raster, isometric hex."
+description = "Roleplaying tactical hunt. One crate, Blade graphics, native and web."
+readme = "README.md"
+default-run = "claymore"
 
 [lib]
-path = "rust/lib.rs"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "claymore"
+path = "src/main.rs"
+
+[features]
+default = []
 
 [dependencies]
+blade-graphics = { git = "https://github.com/kvark/blade", package = "blade-graphics", rev = "20fcb84953dc216bbb7179bda6ce985693208736" }
+blade-macros = { git = "https://github.com/kvark/blade", package = "blade-macros", rev = "20fcb84953dc216bbb7179bda6ce985693208736" }
 bytemuck = { version = "1", features = ["derive"] }
-glam = { version = "0.29", features = ["mint"] }
+glam = { version = "0.30", features = ["mint"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 log = "0.4"
 mint = "0.5"
+raw-window-handle = "0.6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+winit = { version = "0.30", default-features = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+env_logger = "0.11"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2"
 console_error_panic_hook = "0.1"
+console_log = "1"
+js-sys = "0.3"
+wasm-bindgen = "=0.2.127"
+web-sys = { version = "0.3", features = [
+    "Document",
+    "Element",
+    "Node",
+    "CssStyleDeclaration",
+    "HtmlCanvasElement",
+    "HtmlElement",
+    "Window",
+    "XmlHttpRequest",
+    "Storage",
+    "Location",
+] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3

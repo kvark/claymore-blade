@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Claymore</title>
+    <meta name="description" content="A roleplaying tactical hunt. Walk the island. Cut the board." />
+    <meta name="theme-color" content="#0b0a09" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta property="og:type" content="x:game" />
+    <meta property="og:title" content="Claymore" />
+    <meta property="og:image" content="./og.jpg" />
+    <meta property="x:game:image" content="./x-banner.jpg" />
+    <meta property="x:game:image:width" content="1200" />
+    <meta property="x:game:image:height" content="264" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <style>
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: #0b0a09;
+        color: #c8c0b0;
+        font: 14px/1.4 ui-sans-serif, system-ui, sans-serif;
+        overflow: hidden;
+      }
+      #boot {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        letter-spacing: 0.28em;
+        text-transform: uppercase;
+        color: #8a8070;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="boot">Claymore</div>
+    <script type="module">
+      import init, { start } from "./claymore.js";
+      init().then(() => {
+        const boot = document.getElementById("boot");
+        if (boot) boot.remove();
+        start();
+      }).catch((err) => {
+        const boot = document.getElementById("boot");
+        if (boot) boot.textContent = String(err);
+        console.error(err);
+      });
+    </script>
+  </body>
+</html>
