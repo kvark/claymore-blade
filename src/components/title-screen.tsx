@@ -47,8 +47,8 @@ export function TitleScreen({ hasSave }: { hasSave: boolean }) {
           </button>
         </div>
         <p className="mt-8 max-w-sm text-[11px] leading-5 text-dust">
-          WASD walks the island. Click a pin to travel. In a hunt: click a hex to step,
-          pick a technique, click a cell to cut. Raise the bar when you must.
+          WASD walks the island. Click a pin to travel. In a hunt: drag the isometric board,
+          click a tile to step, pick a technique, click a cell to cut. Raise the bar when you must.
         </p>
       </div>
     </div>

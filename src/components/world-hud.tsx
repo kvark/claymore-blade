@@ -12,7 +12,7 @@ export function WorldHud() {
     <>
       <header className="pointer-events-none absolute top-0 right-0 left-0 z-10 flex items-start justify-between p-4 pr-28">
         <div className="pointer-events-auto rounded-lg border border-line bg-fog px-4 py-3">
-          <p className="font-display text-xs tracking-[0.24em] text-dust uppercase">Island</p>
+          <p className="font-display text-xs tracking-[0.24em] text-dust uppercase">The island</p>
           <p className="font-display text-2xl leading-none">{clockLabel(world.hours)}</p>
           <p className="mt-1 text-xs text-dust">
             Rank {world.rank} · Karma {world.karma >= 0 ? "+" : ""}

@@ -1,5 +1,5 @@
-# WAVE
+# Claymore
 
-The living design document lives in the project files as `artifacts/DESIGN.md` (canonical) and is also readable in-game from the Codex.
+Canonical design: [`/artifacts/DESIGN.md`](../artifacts/DESIGN.md)
 
-See `/workspace/artifacts/DESIGN.md`.
+Hunt view is isometric hex prisms. Renderer is Blade (`blade-render::Rasterizer`, WebGL2 on wasm).

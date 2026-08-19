@@ -7,19 +7,18 @@ export function TownView() {
   const setMode = useGame((s) => s.setMode);
   const restTown = useGame((s) => s.restTown);
   const startEncounter = useGame((s) => s.startEncounter);
-  const loc = locById(world.lastTown ?? "dovra");
+  const loc = locById(world.lastTown ?? "doga");
   if (!loc) return null;
   const enc = loc.encounter ? ENCOUNTERS[loc.encounter] : undefined;
   const st = world.locations[loc.id];
   const huntReady = !!enc && !!st && (st.status === "beacon" || st.status === "dead");
+  const backdrop =
+    loc.art ??
+    (loc.kind === "village" || loc.kind === "city" ? "/art/tavern.jpg" : "/art/battle-doga.jpg");
 
   return (
     <div className="absolute inset-0">
-      <img
-        src={loc.kind === "village" || loc.kind === "city" ? "/art/tavern.jpg" : "/art/battle-hamlet.jpg"}
-        alt=""
-        className="absolute inset-0 h-full w-full object-cover"
-      />
+      <img src={backdrop} alt="" className="absolute inset-0 h-full w-full object-cover" />
       <div className="absolute inset-0 bg-ink/70" />
       <div className="relative mx-auto flex min-h-dvh max-w-3xl flex-col justify-end px-5 py-8 sm:justify-center">
         <p className="font-display text-xs tracking-[0.28em] text-dust uppercase">
@@ -36,8 +35,8 @@ export function TownView() {
         {st?.status === "cleared" && (
           <p className="mt-2 text-sm text-dust">The hunt here is finished. They still flinch when you pass.</p>
         )}
-        {world.raku && loc.id === "dovra" && (
-          <p className="mt-3 text-sm text-steel">Raku waits by the well. Trans Drop is yours while he lives.</p>
+        {world.raki && loc.id === "doga" && (
+          <p className="mt-3 text-sm text-steel">Raki waits by the well. Trans Drop is yours while he lives.</p>
         )}
 
         <div className="mt-6 flex flex-wrap gap-2">
@@ -77,6 +76,12 @@ export function TownView() {
               </div>
             );
           })}
+          {world.raki && (
+            <div className="w-20">
+              <img src="/art/raki.jpg" alt="" className="aspect-2/3 w-full rounded-md object-cover" />
+              <p className="mt-1 text-center text-[11px] text-dust">Raki</p>
+            </div>
+          )}
         </div>
       </div>
     </div>

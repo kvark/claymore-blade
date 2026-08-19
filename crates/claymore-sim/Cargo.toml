@@ -1,0 +1,12 @@
+[package]
+name = "claymore-sim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Hex rules, combat resolution, world time. No GPU."
+
+[dependencies]
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

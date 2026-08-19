@@ -1,0 +1,12 @@
+[package]
+name = "claymore-scene"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Isometric hunt camera and hex-prism mesh. Shared by Blade and the web slice."
+
+[dependencies]
+bytemuck.workspace = true
+claymore-sim = { path = "../claymore-sim" }
+glam.workspace = true
+mint.workspace = true

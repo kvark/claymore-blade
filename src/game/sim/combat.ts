@@ -232,11 +232,11 @@ export function skillOf(id: string) {
   return SKILLS[id];
 }
 
-export function canUse(u: Unit, skill: SkillDef, hasRaku: boolean) {
+export function canUse(u: Unit, skill: SkillDef, hasRaki: boolean) {
   if (u.ap < skill.ap) return false;
   if (u.trans < skill.trans) return false;
   if (u.yoki < skill.yoki) return false;
-  if (skill.id === "drop" && !hasRaku) return false;
+  if (skill.id === "drop" && !hasRaki) return false;
   if (skill.id === "ripple" && !u.parts.some((p) => p.zone === "ripple" && p.hp > 0))
     return false;
   return true;
@@ -502,7 +502,7 @@ export type PlayerAction =
 export function act(
   state: CombatState,
   action: PlayerAction,
-  opts?: { hasRaku?: boolean },
+  opts?: { hasRaki?: boolean },
 ): CombatState {
   if (state.over) return state;
   const u = currentUnit(state);
@@ -547,7 +547,7 @@ export function act(
   }
 
   const skill = SKILLS[action.skillId];
-  if (!skill || !canUse(actor, skill, !!opts?.hasRaku)) return state;
+  if (!skill || !canUse(actor, skill, !!opts?.hasRaki)) return state;
   const targets = legalTargets(next, actor.id, skill.id);
   if (!targets.some((h) => hexEq(h, action.hex))) return state;
 

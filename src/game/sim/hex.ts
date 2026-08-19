@@ -62,6 +62,54 @@ export function axialToPixel(h: Axial, size: number): { x: number; y: number } {
   };
 }
 
+/** Pointy-top hex in XZ (Y-up). Same numbers as `axialToPixel`. */
+export function axialToWorld(h: Axial, size: number): { x: number; z: number } {
+  const p = axialToPixel(h, size);
+  return { x: p.x, z: p.y };
+}
+
+/** True isometric (30°) of a Y-up point. Screen +Y is down. */
+export const ISO_COS = Math.sqrt(3) / 2;
+export const ISO_SIN = 0.5;
+
+export function worldToIso(x: number, y: number, z: number): { x: number; y: number } {
+  return {
+    x: (x - z) * ISO_COS,
+    y: (x + z) * ISO_SIN - y,
+  };
+}
+
+export function isoToWorld(sx: number, sy: number, y = 0): { x: number; z: number } {
+  const a = sx / ISO_COS;
+  const b = (sy + y) / ISO_SIN;
+  return { x: (a + b) / 2, z: (b - a) / 2 };
+}
+
+export function worldToAxial(x: number, z: number, size: number): Axial {
+  return pixelToAxial(x, z, size);
+}
+
+export function hexCornersXZ(
+  cx: number,
+  cz: number,
+  size: number,
+): { x: number; z: number }[] {
+  const out: { x: number; z: number }[] = [];
+  for (let i = 0; i < 6; i++) {
+    const angle = (Math.PI / 180) * (60 * i - 30);
+    out.push({ x: cx + size * Math.cos(angle), z: cz + size * Math.sin(angle) });
+  }
+  return out;
+}
+
+/** Terrain pedestal height in world units (same space as `size`). */
+export function terrainHeight(kind: string, size: number): number {
+  if (kind === "ruin") return size * 0.42;
+  if (kind === "water") return size * -0.22;
+  if (kind === "mud") return size * 0.04;
+  return size * 0.14;
+}
+
 export function pixelToAxial(x: number, y: number, size: number): Axial {
   const q = ((Math.sqrt(3) / 3) * x - (1 / 3) * y) / size;
   const r = ((2 / 3) * y) / size;

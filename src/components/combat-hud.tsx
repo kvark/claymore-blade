@@ -86,13 +86,13 @@ export function CombatHud() {
               {mine && (
                 <>
                 <p className="mt-2 text-[11px] text-dust">
-                  Pale hexes are steps. Choose a technique, then a cell. Raise the bar to unlock the rest.
+                  Pale tiles are steps. Drag the board, scroll to zoom. Choose a technique, then a cell.
                 </p>
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {actor.skills.map((id) => {
                     const s = SKILLS[id];
                     if (!s) return null;
-                    const ok = canUse(actor, s, world.raku);
+                    const ok = canUse(actor, s, world.raki);
                     const on = ui.selectedSkill === id;
                     return (
                       <button

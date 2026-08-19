@@ -1,5 +1,12 @@
 node_modules/
+target/
+dist/
 .project_id
 .github_repo
 .env
 .env.*
+.vercel/output
+.vercel/project.json
+artifacts/browsed_files/
+*.pdb
+.DS_Store

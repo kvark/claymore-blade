@@ -1,0 +1,24 @@
+import { chromium } from "playwright";
+const browser = await chromium.launch({ args: ["--no-sandbox"] });
+const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+const errors = [];
+page.on("pageerror", (e) => errors.push(String(e)));
+page.on("console", (m) => {
+  if (m.type() === "error") errors.push(m.text());
+});
+await page.goto("http://127.0.0.1:8080/", { waitUntil: "networkidle" });
+await page.getByRole("button", { name: "New hunt" }).click();
+await page.getByText("You are Clare, No. 47.").click();
+await page.waitForTimeout(400);
+await page.getByRole("button", { name: /Doga/ }).click();
+await page.waitForTimeout(300);
+await page.getByRole("button", { name: "Begin hunt" }).click();
+await page.waitForTimeout(700);
+await page.screenshot({ path: "/workspace/screenshots/combat.png" });
+const body = await page.locator("body").innerText();
+console.log("---combat---\n", body.slice(0, 500));
+await page.setViewportSize({ width: 390, height: 844 });
+await page.waitForTimeout(250);
+await page.screenshot({ path: "/workspace/screenshots/combat-mobile.png" });
+console.log("errors", errors);
+await browser.close();

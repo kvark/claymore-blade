@@ -80,17 +80,24 @@ export const useGame = create<Store>((set, get) => ({
   boot: () => {
     const existing = readSave();
     if (existing) {
+      const world = existing.world as WorldState & { raku?: boolean };
+      if (world.raki == null && world.raku != null) world.raki = !!world.raku;
+      if (world.raki == null) world.raki = false;
+      if (!world.party?.length) world.party = ["clare"];
       set({
-        world: existing.world,
+        world,
         combat: existing.combat,
         mode: "title",
         result: existing.result,
       });
     }
     if (typeof window !== "undefined") {
-      (window as unknown as { __wave?: unknown }).__wave = {
+      (window as unknown as { __wave?: unknown; __claymore?: unknown }).__wave = {
         start: (id: string) => get().startEncounter(id),
       };
+      (window as unknown as { __claymore?: unknown }).__claymore = (
+        window as unknown as { __wave?: unknown }
+      ).__wave;
     }
   },
 
@@ -204,7 +211,7 @@ export const useGame = create<Store>((set, get) => ({
   combatAct: (a) => {
     const { combat, world } = get();
     if (!combat || combat.over) return;
-    let next = act(combat, a, { hasRaku: world.raku });
+    let next = act(combat, a, { hasRaki: world.raki });
     if (a.type === "move") sfx.move();
     else if (a.type === "raise") sfx.trans();
     else sfx.hit();
@@ -236,7 +243,7 @@ export const useGame = create<Store>((set, get) => ({
         result: {
           win: false,
           title: "The bar took you",
-          body: "The Office will send someone else. They always do. The village will not remember your number.",
+          body: "The Organization will send someone else. They always do. The village will not remember your number.",
         },
         mode: "result",
         ui: {},

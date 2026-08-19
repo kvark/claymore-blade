@@ -7,7 +7,7 @@ export function ResultView() {
   return (
     <div className="absolute inset-0">
       <img
-        src={result.win ? "/art/title.jpg" : "/art/ophel.jpg"}
+        src={result.win ? "/art/title.jpg" : "/art/ophelia.jpg"}
         alt=""
         className="absolute inset-0 h-full w-full object-cover opacity-40"
       />
@@ -23,7 +23,7 @@ export function ResultView() {
           onClick={dismiss}
           className="mt-8 w-fit rounded-md bg-steel px-5 py-3 text-sm font-medium text-ink hover:bg-ash"
         >
-          {result.win ? "Return to the island" : "The Office sends another"}
+          {result.win ? "Return to the island" : "The Organization sends another"}
         </button>
       </div>
     </div>

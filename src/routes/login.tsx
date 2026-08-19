@@ -13,7 +13,7 @@ function Login() {
       />
       <div className="absolute inset-0 bg-linear-to-t from-ink via-ink/70 to-ink/40" />
       <div className="relative w-full max-w-sm rounded-xl border border-line bg-surface/90 p-6 shadow-[0_24px_80px_rgb(0_0_0/0.45)]">
-        <p className="font-display text-xs tracking-[0.28em] text-dust uppercase">The Office</p>
+        <p className="font-display text-xs tracking-[0.28em] text-dust uppercase">The Organization</p>
         <h1 className="mt-2 font-display text-4xl font-semibold tracking-tight">Sign in</h1>
         <p className="mt-2 text-sm leading-relaxed text-dust">
           Guest hunts save on this device. A signed-in hunter keeps the ledger with them.

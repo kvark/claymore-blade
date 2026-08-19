@@ -3,8 +3,11 @@ import { LOCATIONS, WARRIORS } from "@/game/data/catalog";
 import { nearestLocation } from "@/game/sim/world";
 import { useGame } from "@/game/store";
 
+const CROP = { sx: 0.06, sy: 0.04, sw: 0.88, sh: 0.86 };
+
 export function WorldCanvas() {
   const ref = useRef<HTMLCanvasElement>(null);
+  const mapSize = useRef({ w: 1792, h: 1008 });
   const world = useGame((s) => s.world);
   const travelTo = useGame((s) => s.travelTo);
 
@@ -48,17 +51,18 @@ export function WorldCanvas() {
       if (map.complete && map.naturalWidth) {
         const iw = map.naturalWidth;
         const ih = map.naturalHeight;
-        const sx = iw * 0.07;
-        const sy = ih * 0.03;
-        const sw = iw * 0.86;
-        const sh = ih * 0.84;
+        mapSize.current = { w: iw, h: ih };
+        const sx = iw * CROP.sx;
+        const sy = ih * CROP.sy;
+        const sw = iw * CROP.sw;
+        const sh = ih * CROP.sh;
         const scale = Math.max(w / sw, h / sh);
         const dw = sw * scale;
         const dh = sh * scale;
         const ox = (w - dw) / 2;
         const oy = (h - dh) / 2;
         ctx.drawImage(map, sx, sy, sw, sh, ox, oy, dw, dh);
-        ctx.fillStyle = "rgba(11,10,9,0.12)";
+        ctx.fillStyle = "rgba(11,10,9,0.16)";
         ctx.fillRect(0, 0, w, h);
 
         const toScreen = (lx: number, ly: number) => ({
@@ -79,7 +83,7 @@ export function WorldCanvas() {
             ctx.fill();
           }
           ctx.beginPath();
-          ctx.arc(x, y, status === "beacon" ? 7 : 5, 0, Math.PI * 2);
+          ctx.arc(x, y, status === "beacon" ? 7 : 6, 0, Math.PI * 2);
           ctx.fillStyle =
             status === "beacon"
               ? "#9a2430"
@@ -87,14 +91,17 @@ export function WorldCanvas() {
                 ? "#3a322c"
                 : status === "cleared"
                   ? "#c8ccd4"
-                  : "#8d8578";
+                  : "#c4b8a4";
           ctx.fill();
           ctx.strokeStyle = "rgba(235,228,214,0.45)";
           ctx.lineWidth = 1;
           ctx.stroke();
           ctx.font = "600 12px Figtree, sans-serif";
-          ctx.fillStyle = "#ebe4d6";
           ctx.textAlign = "center";
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = "rgba(11,10,9,0.75)";
+          ctx.strokeText(loc.name, x, y - 12);
+          ctx.fillStyle = "#ebe4d6";
           ctx.fillText(loc.name, x, y - 12);
         }
 
@@ -106,10 +113,10 @@ export function WorldCanvas() {
         ctx.strokeStyle = "#0b0a09";
         ctx.lineWidth = 2;
         ctx.stroke();
-        const lead = WARRIORS[st.party[0] ?? "kira"];
+        const lead = WARRIORS[st.party[0] ?? "clare"];
         ctx.font = "600 11px Figtree, sans-serif";
         ctx.fillStyle = "#ebe4d6";
-        ctx.fillText(lead?.name ?? "Kira", px, py + 22);
+        ctx.fillText(lead?.name ?? "Clare", px, py + 22);
       }
       raf = requestAnimationFrame(loop);
     };
@@ -168,12 +175,12 @@ export function WorldCanvas() {
     const rect = canvas.getBoundingClientRect();
     const w = rect.width;
     const h = rect.height;
-    const iw = 1792;
-    const ih = 1008;
-    const sx = iw * 0.07;
-    const sy = ih * 0.03;
-    const sw = iw * 0.86;
-    const sh = ih * 0.84;
+    const iw = mapSize.current.w;
+    const ih = mapSize.current.h;
+    const sx = iw * CROP.sx;
+    const sy = ih * CROP.sy;
+    const sw = iw * CROP.sw;
+    const sh = ih * CROP.sh;
     const scale = Math.max(w / sw, h / sh);
     const dw = sw * scale;
     const dh = sh * scale;

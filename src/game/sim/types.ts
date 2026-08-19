@@ -162,6 +162,7 @@ export type LocationDef = {
   kind: "village" | "city" | "shrine" | "keep" | "office" | "wild";
   encounter?: string;
   deadline?: number;
+  art?: string;
 };
 
 export type Ledger = {
@@ -177,7 +178,7 @@ export type WorldState = {
   partyX: number;
   partyY: number;
   party: string[];
-  raku: boolean;
+  raki: boolean;
   rank: number;
   karma: number;
   authority: number;

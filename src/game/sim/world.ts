@@ -13,10 +13,10 @@ export function newWorld(): WorldState {
   }
   return {
     hours: 6,
-    partyX: 0.28,
-    partyY: 0.54,
+    partyX: 0.26,
+    partyY: 0.56,
     party: ["clare"],
-    raku: false,
+    raki: false,
     rank: 47,
     karma: 0,
     authority: 40,
@@ -66,7 +66,7 @@ export function applyVictory(world: WorldState, encounterId: string): WorldState
   else next.ledger.demons += encounterId === "paburo-nest" ? 3 : 2;
   if (enc.reward.karma) next.karma += enc.reward.karma;
   if (enc.reward.rank) next.rank = Math.max(1, next.rank + enc.reward.rank);
-  if (enc.reward.raku) next.raku = true;
+  if (enc.reward.raki) next.raki = true;
   if (enc.reward.recruit) {
     for (const id of enc.reward.recruit) {
       if (!next.party.includes(id)) next.party.push(id);
