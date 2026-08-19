@@ -119,14 +119,7 @@ pub fn apply_victory(world: &mut WorldState, encounter_id: &str) {
     }
     world.karma += enc.karma;
     world.rank = (world.rank + enc.rank).max(1);
-    if enc.raki {
-        world.raki = true;
-    }
-    for id in enc.recruit {
-        if !world.party.iter().any(|p| p == *id) {
-            world.party.push((*id).into());
-        }
-    }
+    // Raki join and silver recruits are scene choices, not automatic.
     world.flags.insert(enc.flag.into(), true);
     if world.flags.get("doga-cleared") == Some(&true) {
         if let Some(st) = world.locations.get_mut("paburo") {

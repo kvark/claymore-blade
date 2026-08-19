@@ -59,6 +59,14 @@ pub fn result_ok() -> Rect {
     Rect::new(0.10, 0.74, 0.28, 0.09)
 }
 
+pub fn scene_yes() -> Rect {
+    Rect::new(0.10, 0.78, 0.28, 0.09)
+}
+
+pub fn scene_no() -> Rect {
+    Rect::new(0.42, 0.78, 0.28, 0.09)
+}
+
 pub struct CombatBar {
     pub wait: Rect,
     pub raise: Rect,
