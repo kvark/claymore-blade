@@ -1,7 +1,7 @@
 //! Move / target legality.
 
 use super::*;
-use crate::catalog::{self};
+use crate::catalog::{self, derived};
 use crate::hex::{
     facing_toward, hex_cone, hex_disc, hex_distance, hex_eq, hex_line, hex_neighbors, hex_ring,
     hex_sweep, Axial,
@@ -25,7 +25,7 @@ pub fn can_use(u: &Unit, skill: &SkillDef, has_raki: bool) -> bool {
     true
 }
 
-pub(super) fn move_cost(state: &CombatState, hex: Axial) -> i32 {
+pub(crate) fn move_cost(state: &CombatState, hex: Axial) -> i32 {
     match terrain_at(state, hex) {
         Terrain::Water => 99,
         Terrain::Mud => 2,
