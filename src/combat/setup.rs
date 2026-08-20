@@ -10,6 +10,14 @@ pub fn effect_scale(pa: i32, pd: i32) -> f32 {
     1.0 + 0.25 * d as f32
 }
 
+fn max_ap(stats: &Stats) -> i32 {
+    (2 + stats.a / 4).clamp(2, 5)
+}
+
+fn find_template(id: &str) -> Option<&'static UnitTemplate> {
+    catalog::warrior(id).or_else(|| catalog::enemy(id))
+}
+
 pub(crate) fn in_bounds(h: Axial, cols: i32, rows: i32) -> bool {
     h.q >= 0 && h.r >= 0 && h.q < cols && h.r < rows
 }
@@ -59,6 +67,7 @@ pub(crate) fn occupied(state: &CombatState, ignore: Option<&str>) -> Vec<(Axial,
 
 pub(crate) fn spawn(t: &UnitTemplate, id: String, origin: Axial, facing: i32) -> Unit {
     let d = derived(&t.stats);
+    let ap = max_ap(&t.stats);
     let parts: Vec<Part> = if t.parts.is_empty() {
         vec![Part {
             id: "body".into(),
@@ -101,8 +110,8 @@ pub(crate) fn spawn(t: &UnitTemplate, id: String, origin: Axial, facing: i32) ->
         yoki: d.yoki,
         max_yoki: d.yoki,
         trans: t.trans,
-        ap: d.ap,
-        max_ap: d.ap,
+        ap,
+        max_ap: ap,
         stats: t.stats,
         skills: t.skills.iter().map(|s| (*s).into()).collect(),
         statuses: Vec::new(),
@@ -149,17 +158,21 @@ pub fn create_battle(enc: &EncounterDef, party: &[String], seed: u32) -> CombatS
     let mut order = Vec::new();
 
     for (i, id) in party.iter().enumerate() {
-        let Some(t) = catalog::unit(id) else { continue };
-        let origin = enc.player_spawns.get(i).copied().unwrap_or(Axial::new(1, rows / 2));
+        let Some(t) = find_template(id) else { continue };
+        let origin = enc
+            .player_origins
+            .get(i)
+            .copied()
+            .unwrap_or(Axial::new(1, rows / 2));
         let u = spawn(t, id.clone(), origin, 1);
         order.push(u.id.clone());
         units.push(u);
     }
 
-    for (i, (tid, origin)) in enc.enemies.iter().enumerate() {
-        let Some(t) = catalog::unit(tid) else { continue };
-        let id = format!("{tid}-{i}");
-        let u = spawn(t, id, *origin, 4);
+    for (i, es) in enc.enemies.iter().enumerate() {
+        let Some(t) = find_template(es.template) else { continue };
+        let id = format!("{}-{}", es.template, i);
+        let u = spawn(t, id, es.origin, es.facing);
         order.push(u.id.clone());
         units.push(u);
     }
@@ -167,18 +180,15 @@ pub fn create_battle(enc: &EncounterDef, party: &[String], seed: u32) -> CombatS
     // initiative: higher A first, then seed noise
     order.sort_by_key(|id| {
         let u = units.iter().find(|x| x.id == *id).unwrap();
-        let noise = rng.next_u32() % 7;
-        (-u.stats.a * 10 - noise as i32, id.clone())
+        let noise = rng.int(0, 6);
+        (-u.stats.a * 10 - noise, id.clone())
     });
 
     let mut terrain = Vec::new();
-    for &(h, kind) in &enc.terrain {
-        terrain.push((h, kind));
-    }
-    // scatter a little extra mud
+    // scatter a little mud
     for _ in 0..6 {
-        let q = (rng.next_u32() % cols as u32) as i32;
-        let r = (rng.next_u32() % rows as u32) as i32;
+        let q = rng.int(0, cols - 1);
+        let r = rng.int(0, rows - 1);
         let h = Axial::new(q, r);
         if !terrain.iter().any(|(a, _)| hex_eq(*a, h)) {
             terrain.push((h, Terrain::Mud));
@@ -206,36 +216,44 @@ pub fn create_battle(enc: &EncounterDef, party: &[String], seed: u32) -> CombatS
 }
 
 pub(crate) fn begin_turn(state: &mut CombatState) {
-    let Some(id) = state.order.get(state.turn).cloned() else { return };
-    let Some(u) = state.units.iter_mut().find(|x| x.id == id) else { return };
+    let Some(id) = state.order.get(state.turn).cloned() else {
+        return;
+    };
+    let Some(u) = state.units.iter_mut().find(|x| x.id == id) else {
+        return;
+    };
     if u.dead {
         return;
     }
-    let d = derived(&u.stats);
-    u.ap = d.ap;
-    // decay statuses
+    let ap = max_ap(&u.stats);
+    u.ap = ap;
     u.statuses.retain_mut(|s| {
         s.turns -= 1;
         s.turns > 0
     });
-    // trans stress
     let trans = u.trans;
+    let name = u.name.clone();
     let seed = state.seed;
     let round = state.round;
-    if trans >= 90 && u.side == Side::Player {
+    let lost_turn = if trans >= 90 && u.side == Side::Player {
         let mut rng = Rng::new(seed + round as u32 * 17 + trans as u32);
         if rng.chance(0.25 + (trans - 90) as f32 / 80.0) {
             u.ap = 0;
+            true
+        } else {
+            false
         }
-    }
-    if trans >= 90 && current_unit(state).map(|u| u.ap == 0).unwrap_or(false) {
-        if let Some(u) = current_unit(state) {
-            push_log(
-                state,
-                "trans",
-                format!("{} loses the bar. The turn is gone.", u.name),
-            );
-        }
+    } else {
+        false
+    };
+    // drop the mut borrow before logging / ripples
+    drop(u);
+    if lost_turn {
+        push_log(
+            state,
+            "trans",
+            format!("{} loses the bar. The turn is gone.", name),
+        );
     }
     tick_ripples(state, &id);
 }
@@ -292,8 +310,6 @@ pub(crate) fn check_over(state: &mut CombatState) {
         state.over = Some(false);
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {

@@ -7,7 +7,7 @@ use crate::rng::Rng;
 
 pub(crate) fn resolve_hit(
     rng: &mut Rng,
-    atk: &Unit,
+    _atk: &Unit,
     def: &Unit,
     skill: &SkillDef,
     pa: i32,
@@ -109,10 +109,10 @@ pub(crate) fn apply_damage(
     kind: HitKind,
     from: &str,
 ) {
-    let Some(u) = state.units.iter_mut().find(|x| x.id == unit_id) else {
+    let Some(idx) = state.units.iter().position(|x| x.id == unit_id) else {
         return;
     };
-    if u.dead {
+    if state.units[idx].dead {
         return;
     }
     let label = match kind {
@@ -121,36 +121,45 @@ pub(crate) fn apply_damage(
         HitKind::Blocked => "is blocked",
         HitKind::Solid => "hits",
     };
+    let name = state.units[idx].name.clone();
     if dmg <= 0 {
         push_log(
             state,
             "miss",
-            format!("{} {} {}.", from, label, u.name),
+            format!("{} {} {}.", from, label, name),
         );
         return;
     }
     // distribute to parts, prefer limbs
-    let mut remaining = dmg;
-    let mut parts: Vec<_> = u.parts.iter_mut().filter(|p| p.hp > 0).collect();
-    parts.sort_by_key(|p| if p.zone.is_some() { 0 } else { 1 });
-    for p in &mut parts {
-        if remaining <= 0 {
-            break;
+    {
+        let u = &mut state.units[idx];
+        let mut remaining = dmg;
+        let mut parts: Vec<_> = u.parts.iter_mut().filter(|p| p.hp > 0).collect();
+        parts.sort_by_key(|p| if p.zone.is_some() { 0 } else { 1 });
+        for p in &mut parts {
+            if remaining <= 0 {
+                break;
+            }
+            let take = remaining.min(p.hp);
+            p.hp -= take;
+            remaining -= take;
         }
-        let take = remaining.min(p.hp);
-        p.hp -= take;
-        remaining -= take;
-    }
-    u.hp = u.parts.iter().map(|p| p.hp).sum();
-    push_log(
-        state,
-        "hit",
-        format!("{} {} {} for {}.", from, label, u.name, dmg - remaining),
-    );
-    if u.hp <= 0 {
-        u.dead = true;
-        u.ap = 0;
-        push_log(state, "kill", format!("{} falls.", u.name));
+        u.hp = u.parts.iter().map(|p| p.hp).sum();
+        let dealt = dmg - remaining;
+        if u.hp <= 0 {
+            u.dead = true;
+            u.ap = 0;
+        }
+        // logs after the mut borrow ends
+        drop(parts);
+        push_log(
+            state,
+            "hit",
+            format!("{} {} {} for {}.", from, label, name, dealt),
+        );
+        if state.units[idx].dead {
+            push_log(state, "kill", format!("{} falls.", name));
+        }
     }
 }
 
@@ -228,9 +237,6 @@ pub fn act(state: &mut CombatState, action: PlayerAction, is_player: bool) {
                 if skill.trans_delta != 0 {
                     uu.trans = (uu.trans + skill.trans_delta).clamp(0, 100);
                 }
-                if skill.r#move != 0 {
-                    // simple leap or step handled by zone
-                }
                 if skill.guard > 0 {
                     uu.statuses.push(Status {
                         id: "guard".into(),
@@ -257,8 +263,9 @@ pub fn act(state: &mut CombatState, action: PlayerAction, is_player: bool) {
                 if let Some(uu) = current_unit_mut(state) {
                     let heal = skill.heal;
                     uu.hp = (uu.hp + heal).min(uu.max_hp);
+                    let n = uu.parts.len().max(1) as i32;
                     for p in &mut uu.parts {
-                        p.hp = (p.hp + heal / uu.parts.len() as i32).min(p.max_hp);
+                        p.hp = (p.hp + heal / n).min(p.max_hp);
                     }
                     push_log(state, "heal", format!("{} recovers {}.", uu.name, heal));
                 }
@@ -279,6 +286,13 @@ pub fn act(state: &mut CombatState, action: PlayerAction, is_player: bool) {
                         skill.aimed,
                         skill.unblockable,
                     );
+                }
+                // simple leap relocation
+                if skill.shape == ShapeKind::Leap || skill.r#move != 0 {
+                    if let Some(uu) = current_unit_mut(state) {
+                        uu.origin = hex;
+                        uu.facing = facing_toward(core_hex(uu), hex);
+                    }
                 }
             }
             let ap = current_unit(state).map(|u| u.ap).unwrap_or(0);
