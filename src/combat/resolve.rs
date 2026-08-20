@@ -130,8 +130,9 @@ pub(crate) fn apply_damage(
         );
         return;
     }
-    // distribute to parts, prefer limbs
-    {
+
+    // Mutate, then drop the borrow completely before any logging.
+    let (dealt, died) = {
         let u = &mut state.units[idx];
         let mut remaining = dmg;
         let mut parts: Vec<_> = u.parts.iter_mut().filter(|p| p.hp > 0).collect();
@@ -146,20 +147,23 @@ pub(crate) fn apply_damage(
         }
         u.hp = u.parts.iter().map(|p| p.hp).sum();
         let dealt = dmg - remaining;
-        if u.hp <= 0 {
+        let died = if u.hp <= 0 {
             u.dead = true;
             u.ap = 0;
-        }
-        // logs after the mut borrow ends
-        drop(parts);
-        push_log(
-            state,
-            "hit",
-            format!("{} {} {} for {}.", from, label, name, dealt),
-        );
-        if state.units[idx].dead {
-            push_log(state, "kill", format!("{} falls.", name));
-        }
+            true
+        } else {
+            false
+        };
+        (dealt, died)
+    };
+
+    push_log(
+        state,
+        "hit",
+        format!("{} {} {} for {}.", from, label, name, dealt),
+    );
+    if died {
+        push_log(state, "kill", format!("{} falls.", name));
     }
 }
 
