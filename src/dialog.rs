@@ -104,6 +104,9 @@ pub const TITLE_FLAVOR: &[&str] = &[
     "Silver eyes see what men will not.",
     "Rank is a number. The bar is a choice.",
     "They call you a Claymore. You are a knife with a name.",
+    "Open the bar only when the alternative is dying.",
+    "The Organization does not mourn numbers.",
+    "Beacons are clocks. The island does not wait.",
 ];
 
 pub const RESULT_WIN_TITLE: &str = "The board is quiet.";
@@ -111,7 +114,29 @@ pub const RESULT_WIN_BODY: &str =
     "You walk back with blood on the silver. The beacon goes dark.";
 pub const RESULT_LOSE_TITLE: &str = "You fall.";
 pub const RESULT_LOSE_BODY: &str = "The Organization will send another number.";
+pub const RESULT_LATE_TITLE: &str = "Too late.";
 pub const RESULT_LATE: &str = "You arrive to ash. The nest has moved into the cellars.";
+
+/// Optional combat flavor. Prefer these over pure mechanical text for narrative kinds.
+pub fn bark(kind: &str) -> Option<&'static str> {
+    match kind {
+        "trans" => Some("Clare opens the bar."),
+        "trans_high" => Some("The silver in her eyes goes thin."),
+        "sever" => Some("The arm learns it is optional."),
+        "death_yoma" | "death" => Some("The face stops being a face."),
+        "death_silver" => Some("A number goes dark."),
+        "raki_drop" => Some("Raki's voice cuts through. The bar falls."),
+        "miria_phantom" => Some("Miria is already gone from where they aimed."),
+        "helen_stretch" => Some("Helen takes the far hex without stepping."),
+        "ophelia_ripple" => Some("The ground forgets who owns it."),
+        "raise" => Some("Clare opens the bar."),
+        _ => None,
+    }
+}
+
+pub const TOWN_REST: &str = "Sleep is a low bar. Take it.";
+pub const TOWN_LEAVE: &str = "The road does not care about rank.";
+pub const TOWN_EMPTY: &str = "No new beacons. The island is holding its breath.";
 
 const RAKI: &[Line] = &[
     Line {
@@ -217,5 +242,12 @@ mod tests {
         let mut s = SceneState::new(SceneId::OpheliaIntro);
         while s.advance() {}
         assert_eq!(s.choices()[0].label, "END HER");
+    }
+
+    #[test]
+    fn bark_covers_raise_and_sever() {
+        assert_eq!(bark("trans"), Some("Clare opens the bar."));
+        assert_eq!(bark("sever"), Some("The arm learns it is optional."));
+        assert!(bark("hit").is_none());
     }
 }
