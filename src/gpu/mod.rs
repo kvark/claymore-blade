@@ -166,7 +166,10 @@ pub struct Renderer {
 }
 
 mod util;
-mod lifecycle;
-mod draw_map;
-mod draw_ui;
+mod create;
+mod frame;
+mod board;
+mod screens;
+mod combat_ui;
+mod panels;
 mod blit;
