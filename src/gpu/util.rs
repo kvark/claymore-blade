@@ -1,4 +1,5 @@
 use super::*;
+use std::{mem, ptr};
 
 pub(super) fn loc_prop(id: &str, kind: &str) -> &'static str {
     match id {
