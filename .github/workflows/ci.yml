@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    name: native smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: native
+
+      - name: System deps (EGL / GLES for --cfg gles)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1-mesa-dev libgles2-mesa-dev libxkbcommon-dev \
+            libwayland-dev libx11-dev libxcursor-dev libxi-dev libxrandr-dev
+
+      - name: Unit tests
+        run: cargo test --lib -- --nocapture
+
+      - name: Vulkan-path compile smoke
+        run: cargo check --lib --bins
+
+      - name: GLES-path compile smoke
+        env:
+          RUSTFLAGS: "--cfg gles"
+          CARGO_TARGET_DIR: target-gles
+        run: cargo check --lib --bins
