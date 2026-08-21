@@ -79,27 +79,22 @@ pub(super) fn upload_rgba(context: &gpu::Context, name: &str, width: u32, height
     unsafe {
         ptr::copy_nonoverlapping(px.as_ptr(), upload.data(), px.len());
     }
+    context.sync_buffer(upload, gpu::BufferTarget::Data);
     let mut encoder = context.create_command_encoder(gpu::CommandEncoderDesc {
-        name: "upload",
-        buffer: None,
-        texture: None,
+        name: "tex-upload",
+        buffer_count: 1,
+        manual_barriers: false,
     });
     encoder.start();
     encoder.init_texture(texture);
-    {
-        let mut transfer = encoder.transfer();
-        transfer.copy_buffer_to_texture(
-            upload.into(),
-            width * 4,
-            texture.into(),
-            extent,
-        );
+    if let mut transfer = encoder.transfer("tex") {
+        transfer.copy_buffer_to_texture(upload.into(), width * 4, texture.into(), extent);
     }
     let sp = context.submit(&mut encoder);
-    #[cfg(target_arch = "wasm32")]
-    let _ = sp;
     #[cfg(not(target_arch = "wasm32"))]
     let _ = context.wait_for(&sp, !0);
+    #[cfg(target_arch = "wasm32")]
+    let _ = sp;
     context.destroy_command_encoder(&mut encoder);
     context.destroy_buffer(upload);
     GpuTex { texture, view }
