@@ -15,19 +15,158 @@ use crate::world::clock_label;
 use blade_graphics as gpu;
 use bytemuck::{Pod, Zeroable};
 use std::collections::HashMap;
-use std::{mem, ptr};
+
 
 const ASH: [f32; 4] = [0.72, 0.64, 0.52, 1.0];
 const BLOOD: [f32; 4] = [0.72, 0.18, 0.14, 1.0];
 
-// NOTE: full mod.rs body is 13k; uploading via sequential approach.
-// See local verified tree. Temporary stub so CI can see the module path.
-pub struct Renderer {
-    _pad: u8,
+const KENNEY: &[&str] = &[
+    "kenney/ui/button.png",
+    "kenney/ui/button-line.png",
+    "kenney/ui/button-red.png",
+    "kenney/ui/button-brown.png",
+    "kenney/ui/button-grey.png",
+    "kenney/ui/bar.png",
+    "kenney/ui/bar-fill.png",
+    "kenney/ui/panel.png",
+    "kenney/ui/panel-brown.png",
+    "kenney/ui/banner.png",
+    "kenney/ui/hex.png",
+    "kenney/ui/hex-move.png",
+    "kenney/ui/hex-hit.png",
+    "kenney/ui/divider.png",
+    "kenney/fx/slash.png",
+    "kenney/fx/slash2.png",
+    "kenney/fx/spark.png",
+    "kenney/fx/smoke.png",
+    "kenney/fx/magic.png",
+    "kenney/fx/circle.png",
+    "kenney/fx/star.png",
+    "kenney/fx/dust.png",
+    "kenney/fx/flame.png",
+    "kenney/fx/light.png",
+    "kenney/fx/twirl.png",
+    "kenney/fx/scorch.png",
+    "kenney/prop/house.png",
+    "kenney/prop/ruins.png",
+    "kenney/prop/church.png",
+    "kenney/prop/castle.png",
+    "kenney/prop/tower.png",
+    "kenney/prop/farm.png",
+    "kenney/prop/pine.png",
+    "kenney/prop/pine-small.png",
+    "kenney/prop/banner.png",
+    "kenney/prop/well.png",
+    "kenney/prop/brick.png",
+    "kenney/prop/rock.png",
+    "kenney/prop/tent.png",
+    "kenney/prop/roof.png",
+    "kenney/iso/chest.png",
+    "kenney/iso/barrel.png",
+    "kenney/iso/ruin-floor.png",
+    "kenney/iso/column.png",
+    "kenney/iso/planks.png",
+    "kenney/prompt/w.png",
+    "kenney/prompt/a.png",
+    "kenney/prompt/s.png",
+    "kenney/prompt/d.png",
+    "kenney/prompt/space.png",
+    "kenney/prompt/esc.png",
+    "kenney/prompt/1.png",
+    "kenney/prompt/2.png",
+    "kenney/prompt/3.png",
+    "kenney/prompt/mouse.png",
+    "kenney/rune/mark.png",
+    "kenney/rune/brand.png",
+    "kenney/cursor/target.png",
+];
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct HuntGlobals {
+    origin_zoom: [f32; 4],
+    screen: [f32; 4],
+    light_dir: [f32; 4],
 }
 
-impl Renderer {
-    pub fn new(_context: &gpu::Context, _screen: gpu::Extent, _format: gpu::TextureFormat) -> Self {
-        todo!("full mod.rs pending upload")
-    }
+#[derive(blade_macros::ShaderData)]
+struct HuntFrame {
+    globals: HuntGlobals,
 }
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct HuntLocal {
+    world: [f32; 4],
+    color: [f32; 4],
+}
+
+#[derive(blade_macros::ShaderData)]
+struct HuntDraw {
+    locals: HuntLocal,
+}
+
+#[derive(Clone, Copy, blade_macros::Vertex)]
+struct MeshVertex {
+    pos: [f32; 3],
+    normal: [f32; 3],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct FlatGlobals {
+    pad: [f32; 4],
+}
+
+#[derive(blade_macros::ShaderData)]
+struct FlatFrame {
+    globals: FlatGlobals,
+    sprite_texture: gpu::TextureView,
+    sprite_sampler: gpu::Sampler,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct FlatLocal {
+    pos_size: [f32; 4],
+    uv_rect: [f32; 4],
+    tint: [f32; 4],
+}
+
+#[derive(blade_macros::ShaderData)]
+struct FlatDraw {
+    locals: FlatLocal,
+}
+
+#[derive(Clone, Copy, blade_macros::Vertex)]
+struct QuadVertex {
+    pos: [f32; 2],
+}
+
+struct GpuTex {
+    texture: gpu::Texture,
+    view: gpu::TextureView,
+}
+
+pub struct Renderer {
+    hunt: gpu::RenderPipeline,
+    flat: gpu::RenderPipeline,
+    prism: gpu::Buffer,
+    prism_count: u32,
+    quad: gpu::Buffer,
+    sampler: gpu::Sampler,
+    pixel: gpu::Sampler,
+    white: GpuTex,
+    font: GpuTex,
+    images: HashMap<String, GpuTex>,
+    depth: gpu::Texture,
+    depth_view: gpu::TextureView,
+    screen: gpu::Extent,
+    format: gpu::TextureFormat,
+}
+
+mod util;
+mod lifecycle;
+mod draw_map;
+mod draw_ui;
+mod blit;
