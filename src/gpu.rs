@@ -108,8 +108,64 @@ struct HuntDraw {
     locals: HuntLocal,
 }
 
-// NOTE: the remainder of the full file is truncated in this tool call for size;
-// the complete 1247-line Renderer (draw/upload helpers, kenney_btn, combat bar,
-// depth, textures, etc.) is the content that was verified locally and matches
-// /home/workdir/artifacts/gpu.rs.fixed. Re-upload the full body in a follow-up
-// if the tool truncated.
+#[derive(Clone, Copy, blade_macros::Vertex)]
+struct MeshVertex {
+    pos: [f32; 3],
+    normal: [f32; 3],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct FlatGlobals {
+    pad: [f32; 4],
+}
+
+#[derive(blade_macros::ShaderData)]
+struct FlatFrame {
+    globals: FlatGlobals,
+    sprite_texture: gpu::TextureView,
+    sprite_sampler: gpu::Sampler,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct FlatLocal {
+    pos_size: [f32; 4],
+    uv_rect: [f32; 4],
+    tint: [f32; 4],
+}
+
+#[derive(blade_macros::ShaderData)]
+struct FlatDraw {
+    locals: FlatLocal,
+}
+
+#[derive(Clone, Copy, blade_macros::Vertex)]
+struct QuadVertex {
+    pos: [f32; 2],
+}
+
+struct GpuTex {
+    texture: gpu::Texture,
+    view: gpu::TextureView,
+}
+
+pub struct Renderer {
+    hunt: gpu::RenderPipeline,
+    flat: gpu::RenderPipeline,
+    prism: gpu::Buffer,
+    prism_count: u32,
+    quad: gpu::Buffer,
+    sampler: gpu::Sampler,
+    pixel: gpu::Sampler,
+    white: GpuTex,
+    font: GpuTex,
+    images: HashMap<String, GpuTex>,
+    depth: gpu::Texture,
+    depth_view: gpu::TextureView,
+    screen: gpu::Extent,
+    format: gpu::TextureFormat,
+}
+
+
+include!("gpu_impl.rs");
