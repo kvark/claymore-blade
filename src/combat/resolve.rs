@@ -193,16 +193,16 @@ pub fn act(state: &mut CombatState, action: PlayerAction, is_player: bool) {
             advance_turn(state);
         }
         PlayerAction::Raise => {
+            let mut msg = None;
             if let Some(uu) = current_unit_mut(state) {
                 if !uu.raised_trans && uu.trans < 100 {
                     uu.trans = (uu.trans + 15).min(100);
                     uu.raised_trans = true;
-                    push_log(
-                        state,
-                        "trans",
-                        format!("{} raises yoki. Trans {}.", uu.name, uu.trans),
-                    );
+                    msg = Some(format!("{} raises yoki. Trans {}.", uu.name, uu.trans));
                 }
+            }
+            if let Some(m) = msg {
+                push_log(state, "trans", m);
             }
         }
         PlayerAction::Move(hex) => {
@@ -210,14 +210,18 @@ pub fn act(state: &mut CombatState, action: PlayerAction, is_player: bool) {
             if !legal.iter().any(|h| hex_eq(*h, hex)) {
                 return;
             }
+            let cost = move_cost(state, hex);
+            let mut name = None;
             if let Some(uu) = current_unit_mut(state) {
-                let cost = move_cost(state, hex);
                 if uu.ap < cost {
                     return;
                 }
                 uu.origin = hex;
                 uu.ap -= cost;
-                push_log(state, "move", format!("{} advances.", uu.name));
+                name = Some(uu.name.clone());
+            }
+            if let Some(n) = name {
+                push_log(state, "move", format!("{} advances.", n));
             }
             let ap = current_unit(state).map(|u| u.ap).unwrap_or(0);
             if ap <= 0 {
@@ -264,6 +268,7 @@ pub fn act(state: &mut CombatState, action: PlayerAction, is_player: bool) {
                 });
                 push_log(state, "skill", format!("{} starts a ripple.", u.name));
             } else if skill.heal > 0 {
+                let mut msg = None;
                 if let Some(uu) = current_unit_mut(state) {
                     let heal = skill.heal;
                     uu.hp = (uu.hp + heal).min(uu.max_hp);
@@ -271,7 +276,10 @@ pub fn act(state: &mut CombatState, action: PlayerAction, is_player: bool) {
                     for p in &mut uu.parts {
                         p.hp = (p.hp + heal / n).min(p.max_hp);
                     }
-                    push_log(state, "heal", format!("{} recovers {}.", uu.name, heal));
+                    msg = Some(format!("{} recovers {}.", uu.name, heal));
+                }
+                if let Some(m) = msg {
+                    push_log(state, "heal", m);
                 }
             } else {
                 push_log(
