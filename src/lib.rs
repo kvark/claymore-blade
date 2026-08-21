@@ -15,6 +15,7 @@ pub mod hex;
 pub mod hud;
 pub mod io;
 pub mod iso;
+pub mod pipe_enc;
 pub mod prism;
 pub mod rng;
 pub mod world;
