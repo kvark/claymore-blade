@@ -32,39 +32,40 @@ impl Rect {
 }
 
 pub fn title_new() -> Rect {
-    Rect::new(0.07, 0.70, 0.32, 0.09)
+    // Taller on phone (0.10) so thumbs hit reliably
+    Rect::new(0.07, 0.68, 0.36, 0.10)
 }
 
 pub fn title_continue() -> Rect {
-    Rect::new(0.07, 0.81, 0.32, 0.09)
+    Rect::new(0.07, 0.80, 0.36, 0.10)
 }
 
 pub fn world_codex() -> Rect {
-    Rect::new(0.82, 0.92, 0.16, 0.06)
+    Rect::new(0.80, 0.90, 0.18, 0.08)
 }
 
 pub fn town_hunt() -> Rect {
-    Rect::new(0.07, 0.78, 0.22, 0.09)
+    Rect::new(0.06, 0.76, 0.24, 0.10)
 }
 
 pub fn town_rest() -> Rect {
-    Rect::new(0.32, 0.78, 0.20, 0.09)
+    Rect::new(0.32, 0.76, 0.22, 0.10)
 }
 
 pub fn town_leave() -> Rect {
-    Rect::new(0.55, 0.78, 0.20, 0.09)
+    Rect::new(0.56, 0.76, 0.22, 0.10)
 }
 
 pub fn result_ok() -> Rect {
-    Rect::new(0.10, 0.74, 0.28, 0.09)
+    Rect::new(0.10, 0.72, 0.30, 0.10)
 }
 
 pub fn scene_yes() -> Rect {
-    Rect::new(0.10, 0.78, 0.28, 0.09)
+    Rect::new(0.08, 0.76, 0.30, 0.10)
 }
 
 pub fn scene_no() -> Rect {
-    Rect::new(0.42, 0.78, 0.28, 0.09)
+    Rect::new(0.42, 0.76, 0.30, 0.10)
 }
 
 pub struct CombatBar {
@@ -76,14 +77,16 @@ pub struct CombatBar {
     pub forfeit: Rect,
 }
 
+/// Combat action bar. Raised slightly and taller so it clears phone home
+/// indicators and stays finger-sized on ~375 px screens.
 pub fn combat_bar() -> CombatBar {
     CombatBar {
-        wait: Rect::new(0.105, 0.912, 0.10, 0.07),
-        raise: Rect::new(0.215, 0.912, 0.10, 0.07),
-        guard: Rect::new(0.325, 0.912, 0.11, 0.07),
-        cut: Rect::new(0.445, 0.912, 0.10, 0.07),
-        slot: Rect::new(0.555, 0.912, 0.12, 0.07),
-        forfeit: Rect::new(0.875, 0.912, 0.11, 0.07),
+        wait: Rect::new(0.04, 0.895, 0.13, 0.085),
+        raise: Rect::new(0.18, 0.895, 0.13, 0.085),
+        guard: Rect::new(0.32, 0.895, 0.14, 0.085),
+        cut: Rect::new(0.47, 0.895, 0.13, 0.085),
+        slot: Rect::new(0.61, 0.895, 0.15, 0.085),
+        forfeit: Rect::new(0.82, 0.895, 0.14, 0.085),
     }
 }
 
@@ -94,14 +97,14 @@ mod tests {
     #[test]
     fn title_new_is_clickable() {
         let r = title_new();
-        assert!(r.contains(0.20, 0.74));
+        assert!(r.contains(0.20, 0.72));
         assert!(!r.contains(0.80, 0.20));
     }
 
     #[test]
     fn combat_wait_sits_on_the_bar() {
         let b = combat_bar();
-        assert!(b.wait.contains(0.12, 0.94));
-        assert!(!b.forfeit.contains(0.12, 0.94));
+        assert!(b.wait.contains(0.08, 0.93));
+        assert!(!b.forfeit.contains(0.08, 0.93));
     }
 }
