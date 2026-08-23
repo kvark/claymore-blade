@@ -11,7 +11,10 @@ impl Renderer {
     ) {
         let size = board_size(combat.cols, combat.rows, w, h);
         let pan = Self::pan(game, w, h);
-        let (ox, oy) = camera_origin(combat.cols, combat.rows, size, w, h, pan, game.ui.zoom);
+        let yaw = game.ui.yaw;
+        let (ox, oy) = camera_origin(combat.cols, combat.rows, size, w, h, pan, game.ui.zoom, yaw);
+        // Keep lighting direction consistent in world space while the board rotates.
+        let (lx, lz) = rotate_yaw(0.35, 0.42, yaw);
         let mut rc = pass.with(&self.hunt);
         rc.bind(
             0,
@@ -19,7 +22,7 @@ impl Renderer {
                 globals: HuntGlobals {
                     origin_zoom: [ox, oy, game.ui.zoom, 0.0],
                     screen: [w, h, 0.0, 0.0],
-                    light_dir: [0.35, 0.82, 0.42, 0.0],
+                    light_dir: [lx, 0.82, lz, 0.0],
                 },
             },
         );
@@ -28,7 +31,7 @@ impl Renderer {
         let skill_on = game.ui.selected_skill.is_some();
         for (hex, terrain) in &combat.terrain {
             let height = terrain_height(*terrain, size);
-            let (x, z) = axial_to_world(*hex, size);
+            let (x, z) = axial_to_world_yaw(*hex, size, yaw);
             let mut color = match terrain {
                 Terrain::Water => [0.16, 0.20, 0.22],
                 Terrain::Mud => [0.28, 0.20, 0.14],
@@ -61,7 +64,7 @@ impl Renderer {
                 continue;
             }
             for cell in live_cells(u) {
-                let (x, z) = axial_to_world(cell, size);
+                let (x, z) = axial_to_world_yaw(cell, size, yaw);
                 let hgt = size * if u.side == Side::Enemy { 0.55 } else { 0.38 };
                 rc.bind(
                     1,
@@ -76,5 +79,4 @@ impl Renderer {
             }
         }
     }
-
 }
