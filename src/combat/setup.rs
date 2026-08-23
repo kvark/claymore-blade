@@ -117,7 +117,6 @@ pub fn create_battle(enc: &EncounterDef, party: &[String], seed: u32) -> CombatS
         units.push(u);
     }
 
-    // initiative: higher A first, then seed noise
     order.sort_by_key(|id| {
         let u = units.iter().find(|x| x.id == *id).unwrap();
         let noise = rng.int(0, 6);
@@ -143,7 +142,6 @@ pub fn create_battle(enc: &EncounterDef, party: &[String], seed: u32) -> CombatS
             terrain.push((h, Terrain::Ruin));
         }
     }
-    // Water seam near the mid-line for cover / chokepoints.
     let mid_r = rows / 2;
     for q in 0..cols {
         let h0 = Axial::new(q, mid_r);
@@ -174,4 +172,42 @@ pub fn create_battle(enc: &EncounterDef, party: &[String], seed: u32) -> CombatS
     };
     begin_turn(&mut state);
     state
+}
+
+pub(crate) fn begin_turn(state: &mut CombatState) {
+    let Some(id) = state.order.get(state.turn).cloned() else {
+        return;
+    };
+    if let Some(u) = state.units.iter_mut().find(|u| u.id == id) {
+        u.ap = u.max_ap;
+        u.guard = false;
+    }
+}
+
+pub fn current_unit(state: &CombatState) -> Option<&Unit> {
+    let id = state.order.get(state.turn)?;
+    state.units.iter().find(|u| u.id == *id && !u.dead)
+}
+
+pub fn living(state: &CombatState, side: Side) -> impl Iterator<Item = &Unit> {
+    state.units.iter().filter(move |u| u.side == side && !u.dead)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scale_table() {
+        assert!((effect_scale(0, 0) - 1.0).abs() < 1e-5);
+        assert!((effect_scale(4, 0) - 2.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn doga_starts() {
+        let enc = catalog::encounter("doga-yoma").unwrap();
+        let s = create_battle(enc, &["clare".into()], 7);
+        assert!(s.units.len() >= 3);
+        assert!(current_unit(&s).is_some());
+    }
 }
