@@ -185,12 +185,31 @@ pub fn create_battle(enc: &EncounterDef, party: &[String], seed: u32) -> CombatS
     });
 
     let mut terrain = Vec::new();
-    for _ in 0..6 {
-        let q = rng.int(0, cols - 1);
-        let r = rng.int(0, rows - 1);
-        let h = Axial::new(q, r);
-        if !terrain.iter().any(|(a, _)| hex_eq(*a, h)) {
+    // Gorky-style arena: mud patches, ruin cover, stagnant water seam.
+    let taken = |terrain: &[(Axial, Terrain)], h: Axial| {
+        terrain.iter().any(|(a, _)| hex_eq(*a, h))
+    };
+    for _ in 0..((cols * rows) / 5).max(8) {
+        let h = Axial::new(rng.int(0, cols - 1), rng.int(0, rows - 1));
+        if !taken(&terrain, h) {
             terrain.push((h, Terrain::Mud));
+        }
+    }
+    for _ in 0..((cols + rows) / 3).max(3) {
+        let h = Axial::new(rng.int(0, cols - 1), rng.int(0, rows - 1));
+        if !taken(&terrain, h) {
+            terrain.push((h, Terrain::Ruin));
+        }
+    }
+    let mid_r = rows / 2;
+    for q in 0..cols {
+        let h0 = Axial::new(q, mid_r);
+        if rng.int(0, 100) < 35 && !taken(&terrain, h0) {
+            terrain.push((h0, Terrain::Water));
+        }
+        let h1 = Axial::new(q, (mid_r + 1).min(rows - 1));
+        if rng.int(0, 100) < 20 && !taken(&terrain, h1) {
+            terrain.push((h1, Terrain::Water));
         }
     }
 
