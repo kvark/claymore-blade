@@ -91,7 +91,16 @@
       init()
         .then(() => {
           if (hint) hint.textContent = "starting";
-          start();
+          // winit EventLoop::run has return type `!`. On web it spawns the
+          // loop then throws so the function never returns. Ignore that
+          // intentional exception; the canvas is already live.
+          try {
+            start();
+          } catch (err) {
+            if (!String(err).includes("Using exceptions for control flow")) {
+              throw err;
+            }
+          }
           if (boot) boot.remove();
         })
         .catch((err) => {
