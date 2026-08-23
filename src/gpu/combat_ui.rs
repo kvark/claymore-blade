@@ -14,6 +14,7 @@ impl Renderer {
         let mut rc = pass.with(&self.flat);
         let size = board_size(combat.cols, combat.rows, w, h);
         let pan = Self::pan(game, w, h);
+        let yaw = game.ui.yaw;
         let (ox, oy) = camera_origin(
             combat.cols,
             combat.rows,
@@ -22,6 +23,7 @@ impl Renderer {
             h,
             pan,
             game.ui.zoom,
+            yaw,
         );
         let preview = game.preview_zone();
         let skill_on = game.ui.selected_skill.is_some();
@@ -36,7 +38,7 @@ impl Renderer {
             [0.45, 0.62, 0.28, 0.65]
         };
         for hex in &preview {
-            let (wx, wz) = axial_to_world(*hex, size);
+            let (wx, wz) = axial_to_world_yaw(*hex, size, yaw);
             let (sx, sy) = world_to_iso(wx, size * 0.16, wz);
             let px = (ox + sx * game.ui.zoom) / w;
             let py = (oy + sy * game.ui.zoom) / h;
@@ -53,7 +55,7 @@ impl Renderer {
             if *terrain != Terrain::Ruin {
                 continue;
             }
-            let (wx, wz) = axial_to_world(*hex, size);
+            let (wx, wz) = axial_to_world_yaw(*hex, size, yaw);
             let (sx, sy) = world_to_iso(wx, size * 0.42, wz);
             let px = (ox + sx * game.ui.zoom) / w;
             let py = (oy + sy * game.ui.zoom) / h;
@@ -69,41 +71,31 @@ impl Renderer {
                 continue;
             }
             let c = core_hex(u);
-            let (wx, wz) = axial_to_world(c, size);
+            let (wx, wz) = axial_to_world_yaw(c, size, yaw);
             let (sx, sy) = world_to_iso(wx, size * 0.4, wz);
             let hash = (u.id.bytes().fold(0u32, |a, b| a.wrapping_mul(31).wrapping_add(b as u32))
                 as f32)
                 * 0.01;
-            let bob = (game.fx.time * 3.1 + hash).sin() * 0.007;
+            let bob = (game.fx.time * 3.2 + hash).sin() * 0.004;
             let px = (ox + sx * game.ui.zoom) / w - 0.04;
             let py = (oy + sy * game.ui.zoom) / h - 0.12 + bob;
-            let spr = if self.images.contains_key(&u.sprite) {
-                self.tex(&u.sprite)
+            let tint = if u.side == Side::Player {
+                [1.0, 1.0, 1.0, 1.0]
             } else {
-                self.white.view
+                [0.92, 0.55, 0.48, 1.0]
             };
-            let squash = 1.0 + (game.fx.time * 3.1 + hash).sin() * 0.03;
             self.blit(
                 &mut rc,
-                spr,
-                [px, py, 0.08 * (2.0 - squash), 0.16 * squash],
-                [1.0, 1.0, 1.0, 1.0],
+                self.tex(&u.portrait),
+                [px, py, 0.08, 0.12],
+                tint,
             );
-            let frac = if u.max_hp > 0 {
-                u.hp as f32 / u.max_hp as f32
-            } else {
-                0.0
-            };
-            self.bar(&mut rc, px, py - 0.014, 0.08, 0.01, frac, BLOOD);
-            if u.trans > 0 {
-                self.bar(
+            if Some(u.id.as_str()) == current_unit(combat).map(|x| x.id.as_str()) {
+                self.blit_px(
                     &mut rc,
-                    px,
-                    py - 0.024,
-                    0.08,
-                    0.008,
-                    u.trans as f32 / 100.0,
-                    [0.72, 0.22, 0.28, 1.0],
+                    self.tex("kenney/ui/hex.png"),
+                    [px - 0.005, py - 0.01, 0.09, 0.14],
+                    [0.95, 0.82, 0.35, 0.55],
                 );
             }
         }
@@ -111,7 +103,7 @@ impl Renderer {
             &mut rc,
             self.tex("kenney/ui/panel.png"),
             [0.0, 0.85, 1.0, 0.15],
-            [0.38, 0.30, 0.22, 0.92],
+            [0.32, 0.26, 0.20, 0.92],
         );
         if let Some(u) = current_unit(combat) {
             self.blit(
@@ -189,8 +181,8 @@ impl Renderer {
             self.text(&mut rc, &line.text, 0.58, 0.862, 0.011);
         }
         self.text(&mut rc, combat.title.as_str(), 0.02, 0.02, 0.014);
+        self.text(&mut rc, "Q / E  ROTATE", 0.72, 0.02, 0.011);
         self.prompt(&mut rc, "kenney/prompt/esc.png", 0.92, 0.02, 0.04);
         self.draw_fx(&mut rc, game);
     }
-
 }
