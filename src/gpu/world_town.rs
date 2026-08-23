@@ -32,28 +32,63 @@ impl Renderer {
                 tint,
             );
         }
-        let bob = (game.fx.time * 3.4).sin() * 0.006;
+        // Clare: face the walk direction, procedural step bob + lean.
+        let facing = if game.facing >= 0.0 { 1.0 } else { -1.0 };
+        let walk_t = if game.walking {
+            game.fx.time * 10.5
+        } else {
+            game.fx.time * 2.2
+        };
+        let step = walk_t.sin();
+        let bob = if game.walking {
+            step.abs() * 0.007 + step * 0.002
+        } else {
+            (game.fx.time * 3.4).sin() * 0.004
+        };
+        let lean = if game.walking { facing * 0.003 } else { 0.0 };
+        let squash = if game.walking {
+            1.0 + step.abs() * 0.06
+        } else {
+            1.0
+        };
+        let stretch = if game.walking {
+            1.0 - step.abs() * 0.05
+        } else {
+            1.0
+        };
+        let base_w = 0.032 * squash;
+        let base_h = 0.058 * stretch;
+        let px = game.world.party_x + lean;
+        let py = game.world.party_y;
         self.blit_px(
             &mut rc,
             self.tex("kenney/prop/banner.png"),
             [
-                game.world.party_x - 0.012,
-                game.world.party_y - 0.038 + bob,
+                px - 0.012,
+                py - 0.038 + bob * 0.5,
                 0.024,
                 0.046,
             ],
             [0.92, 0.88, 0.72, 1.0],
         );
         if self.images.contains_key("sprites/clare.png") {
-            self.blit(
+            // Flip UVs when facing left so the portrait looks the way she walks.
+            let uv = if facing < 0.0 {
+                [1.0, 0.0, -1.0, 1.0]
+            } else {
+                [0.0, 0.0, 1.0, 1.0]
+            };
+            self.blit_uv(
                 &mut rc,
                 self.tex("sprites/clare.png"),
+                self.sampler,
                 [
-                    game.world.party_x - 0.016,
-                    game.world.party_y - 0.05 + bob,
-                    0.032,
-                    0.058,
+                    px - base_w * 0.5,
+                    py - base_h * 0.88 + bob,
+                    base_w,
+                    base_h,
                 ],
+                uv,
                 [1.0, 1.0, 1.0, 1.0],
             );
         }

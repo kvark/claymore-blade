@@ -77,6 +77,10 @@ pub struct Game {
     pub has_save: bool,
     pub fx: Fx,
     pub step_acc: f32,
+    /// 1 = facing right, -1 = facing left (world map Clare).
+    pub facing: f32,
+    /// True while Clare is moving on the island.
+    pub walking: bool,
     pub scene: Option<SceneState>,
     pub pending_encounter: Option<String>,
 }
@@ -103,6 +107,8 @@ impl Game {
             has_save,
             fx: Fx::default(),
             step_acc: 0.0,
+            facing: 1.0,
+            walking: false,
             scene: None,
             pending_encounter: None,
         }
@@ -135,6 +141,9 @@ impl Game {
             ..Ui::default()
         };
         self.fx = Fx::default();
+        self.facing = 1.0;
+        self.walking = false;
+        self.step_acc = 0.0;
         audio::confirm();
         self.persist();
     }
@@ -193,6 +202,7 @@ impl Game {
 
     pub(super) fn tick_world(&mut self, dt: f32) {
         if self.fx.hitstop > 0.0 {
+            self.walking = false;
             return;
         }
         let mut dx = 0.0f32;
@@ -207,11 +217,17 @@ impl Game {
             }
         }
         if dx == 0.0 && dy == 0.0 {
+            self.walking = false;
             return;
         }
         let len = (dx * dx + dy * dy).sqrt();
         dx /= len;
         dy /= len;
+        // Face the direction of travel (prefer horizontal when both axes pressed).
+        if dx.abs() > 0.01 {
+            self.facing = if dx > 0.0 { 1.0 } else { -1.0 };
+        }
+        self.walking = true;
         let speed = 0.18;
         self.world.party_x = (self.world.party_x + dx * speed * dt).clamp(0.08, 0.92);
         self.world.party_y = (self.world.party_y + dy * speed * dt).clamp(0.10, 0.88);

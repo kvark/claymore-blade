@@ -85,11 +85,11 @@ impl Renderer {
     }
 
     pub(super) fn blit(&self, rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>, view: gpu::TextureView, pos: [f32; 4], tint: [f32; 4]) {
-        self.blit_s(rc, view, self.sampler, pos, tint);
+        self.blit_uv(rc, view, self.sampler, pos, [0.0, 0.0, 1.0, 1.0], tint);
     }
 
     pub(super) fn blit_px(&self, rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>, view: gpu::TextureView, pos: [f32; 4], tint: [f32; 4]) {
-        self.blit_s(rc, view, self.pixel, pos, tint);
+        self.blit_uv(rc, view, self.pixel, pos, [0.0, 0.0, 1.0, 1.0], tint);
     }
 
     pub(super) fn blit_s(
@@ -98,6 +98,19 @@ impl Renderer {
         view: gpu::TextureView,
         sampler: gpu::Sampler,
         pos: [f32; 4],
+        tint: [f32; 4],
+    ) {
+        self.blit_uv(rc, view, sampler, pos, [0.0, 0.0, 1.0, 1.0], tint);
+    }
+
+    /// Blit with a custom UV rect. Use `[1, 0, -1, 1]` to flip horizontally.
+    pub(super) fn blit_uv(
+        &self,
+        rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>,
+        view: gpu::TextureView,
+        sampler: gpu::Sampler,
+        pos: [f32; 4],
+        uv: [f32; 4],
         tint: [f32; 4],
     ) {
         rc.bind(
@@ -113,7 +126,7 @@ impl Renderer {
             &FlatDraw {
                 locals: FlatLocal {
                     pos_size: pos,
-                    uv_rect: [0.0, 0.0, 1.0, 1.0],
+                    uv_rect: uv,
                     tint,
                 },
             },
