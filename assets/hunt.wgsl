@@ -39,7 +39,7 @@ fn vs_main(v: Vertex) -> VSOut {
     let ndl = max(dot(n, globals.light_dir.xyz), 0.0);
     var o: VSOut;
     o.clip = vec4<f32>(ndc_x, ndc_y, depth, 1.0);
-    o.color = vec4<f32>(locals.color.xyz * (0.32 + 0.68 * ndl), 1.0);
+    o.color = vec4<f32>(locals.color.xyz * (0.22 + 0.78 * ndl), 1.0);
     return o;
 }
 

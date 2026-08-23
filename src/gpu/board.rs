@@ -14,7 +14,7 @@ impl Renderer {
         let yaw = game.ui.yaw;
         let (ox, oy) = camera_origin(combat.cols, combat.rows, size, w, h, pan, game.ui.zoom, yaw);
         // Keep lighting direction consistent in world space while the board rotates.
-        let (lx, lz) = rotate_yaw(0.35, 0.42, yaw);
+        let (lx, lz) = rotate_yaw(0.55, -0.15, yaw);
         let mut rc = pass.with(&self.hunt);
         rc.bind(
             0,
@@ -22,7 +22,7 @@ impl Renderer {
                 globals: HuntGlobals {
                     origin_zoom: [ox, oy, game.ui.zoom, 0.0],
                     screen: [w, h, 0.0, 0.0],
-                    light_dir: [lx, 0.82, lz, 0.0],
+                    light_dir: [lx, 0.72, lz, 0.0],
                 },
             },
         );
@@ -33,20 +33,24 @@ impl Renderer {
             let height = terrain_height(*terrain, size);
             let (x, z) = axial_to_world_yaw(*hex, size, yaw);
             let mut color = match terrain {
-                Terrain::Water => [0.16, 0.20, 0.22],
-                Terrain::Mud => [0.28, 0.20, 0.14],
-                Terrain::Ruin => [0.32, 0.30, 0.28],
-                Terrain::Grass => [0.18, 0.19, 0.15],
+                // Stagnant, oily water
+                Terrain::Water => [0.10, 0.12, 0.14],
+                // Packed ash-dirt
+                Terrain::Mud => [0.22, 0.16, 0.12],
+                // Broken concrete / brick
+                Terrain::Ruin => [0.26, 0.24, 0.22],
+                // Dead grass / scorched ground
+                Terrain::Grass => [0.14, 0.15, 0.12],
             };
             if preview.iter().any(|h| h.q == hex.q && h.r == hex.r) {
                 color = if skill_on {
-                    [0.48, 0.18, 0.14]
+                    [0.42, 0.14, 0.12]
                 } else {
-                    [0.36, 0.42, 0.22]
+                    [0.28, 0.34, 0.18]
                 };
             }
             if game.ui.hover == Some(*hex) {
-                color = [0.55, 0.46, 0.26];
+                color = [0.48, 0.40, 0.22];
             }
             rc.bind(
                 1,
@@ -65,7 +69,7 @@ impl Renderer {
             }
             for cell in live_cells(u) {
                 let (x, z) = axial_to_world_yaw(cell, size, yaw);
-                let hgt = size * if u.side == Side::Enemy { 0.55 } else { 0.38 };
+                let hgt = size * if u.side == Side::Enemy { 0.62 } else { 0.44 };
                 rc.bind(
                     1,
                     &HuntDraw {
