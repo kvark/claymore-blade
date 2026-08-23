@@ -38,10 +38,10 @@ pub fn axial_to_world_yaw(h: Axial, size: f32, yaw: u8) -> (f32, f32) {
 
 pub fn terrain_height(kind: crate::combat::Terrain, size: f32) -> f32 {
     match kind {
-        crate::combat::Terrain::Ruin => size * 0.42,
-        crate::combat::Terrain::Water => size * -0.22,
-        crate::combat::Terrain::Mud => size * 0.04,
-        crate::combat::Terrain::Grass => size * 0.14,
+        crate::combat::Terrain::Ruin => size * 0.55,
+        crate::combat::Terrain::Water => size * -0.28,
+        crate::combat::Terrain::Mud => size * 0.06,
+        crate::combat::Terrain::Grass => size * 0.12,
     }
 }
 
@@ -61,8 +61,8 @@ pub fn hunt_view_proj(pos: Vec3, rot: Quat, aspect: f32, depth: f32) -> Mat4 {
 }
 
 pub fn board_size(cols: i32, rows: i32, w: f32, h: f32) -> f32 {
-    let fit = (w / (cols as f32 * 1.55 + 1.2)).min(h / (rows as f32 * 0.78 + 2.1));
-    fit.clamp(22.0, 58.0)
+    let fit = (w / (cols as f32 * 1.45 + 1.0)).min(h / (rows as f32 * 0.72 + 1.9));
+    fit.clamp(24.0, 62.0)
 }
 
 pub fn camera_origin(
@@ -77,7 +77,7 @@ pub fn camera_origin(
 ) -> (f32, f32) {
     let mid = axial_to_world_yaw(Axial::new((cols - 1) / 2, (rows - 1) / 2), size, yaw);
     let (cx, cy) = world_to_iso(mid.0, 0.0, mid.1);
-    (w / 2.0 - cx * zoom + pan[0], h * 0.46 - cy * zoom + pan[1])
+    (w / 2.0 - cx * zoom + pan[0], h * 0.40 - cy * zoom + pan[1])
 }
 
 pub fn hex_to_screen(
