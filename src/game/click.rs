@@ -72,28 +72,20 @@ impl Game {
                 self.result_title = dialog::RESULT_LATE_TITLE.into();
                 self.result_body = dialog::RESULT_LATE.into();
                 audio::music_defeat();
-                self.result_win = Some(false);
-                self.scene = None;
                 self.mode = Mode::Result;
-                self.persist();
                 return;
             }
-            audio::confirm();
+            audio::play("draw");
             self.world.party_x = loc.x;
             self.world.party_y = loc.y;
             self.world.last_town = Some(loc.id.into());
-            if self.world.flags.get("raki-refused") == Some(&true) && !self.world.raki {
-                self.world.raki = true;
-                self.world.flags.remove("raki-refused");
-                self.world.flags.insert("raki-followed".into(), true);
-            }
-            if loc.id == "doga"
-                && self.world.flags.get("doga-talked") != Some(&true)
-                && self.world.locations.get("doga").map(|s| s.status)
-                    != Some(world::WorldStatus::Cleared)
-            {
-                self.scene = Some(SceneState::new(SceneId::TownDoga));
-                self.mode = Mode::Scene;
+            if loc.kind == catalog::LocKind::Beacon {
+                if let Some(enc) = loc.encounter {
+                    self.start_encounter(enc);
+                } else {
+                    self.mode = Mode::Town;
+                    audio::music_town();
+                }
             } else {
                 self.mode = Mode::Town;
                 audio::music_town();
@@ -163,6 +155,7 @@ impl Game {
         audio::music_hunt();
         self.ui = Ui {
             screen: self.ui.screen,
+            zoom: 1.18,
             ..Ui::default()
         };
         self.fx = crate::fx::Fx::default();
