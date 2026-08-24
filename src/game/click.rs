@@ -79,7 +79,7 @@ impl Game {
             self.world.party_x = loc.x;
             self.world.party_y = loc.y;
             self.world.last_town = Some(loc.id.into());
-            if loc.kind == catalog::LocKind::Beacon {
+            if loc.kind == "beacon" || loc.encounter.is_some() && loc.kind == "wild" {
                 if let Some(enc) = loc.encounter {
                     self.start_encounter(enc);
                 } else {
