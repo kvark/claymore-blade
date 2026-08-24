@@ -108,15 +108,17 @@ pub(crate) fn spawn(t: &UnitTemplate, id: String, origin: Axial, facing: i32) ->
         hp,
         max_hp: hp,
         yoki: d.yoki,
-        stats: t.stats,
-        derived: d,
+        max_yoki: d.yoki,
+        trans: t.trans,
         ap,
         max_ap: ap,
+        stats: t.stats,
         skills: t.skills.iter().map(|s| (*s).into()).collect(),
+        statuses: Vec::new(),
+        raised_trans: false,
+        next_hint: None,
         color: t.color,
         dead: false,
-        guard: false,
-        trans: 0,
     }
 }
 
@@ -124,7 +126,7 @@ pub fn living(state: &CombatState, side: Option<Side>) -> Vec<&Unit> {
     state
         .units
         .iter()
-        .filter(|u| !u.dead && side.map(|s| u.side == s).unwrap_or(true))
+        .filter(|u| !u.dead && side.map_or(true, |s| u.side == s))
         .collect()
 }
 
@@ -139,15 +141,12 @@ pub(crate) fn current_unit_mut(state: &mut CombatState) -> Option<&mut Unit> {
 }
 
 pub(crate) fn push_log(state: &mut CombatState, kind: &str, text: String) {
-    state.log.insert(
-        0,
-        LogLine {
-            kind: kind.into(),
-            text,
-        },
-    );
-    if state.log.len() > 12 {
-        state.log.truncate(12);
+    state.log.push(CombatLog {
+        text,
+        kind: kind.into(),
+    });
+    if state.log.len() > 48 {
+        state.log.remove(0);
     }
 }
 
@@ -241,7 +240,18 @@ pub(crate) fn begin_turn(state: &mut CombatState) {
         return;
     };
     u.ap = u.max_ap;
-    u.guard = false;
+    for s in &mut u.statuses {
+        if s.turns > 0 {
+            s.turns -= 1;
+        }
+    }
+    u.statuses.retain_mut(|s| {
+        if s.turns > 0 {
+            true
+        } else {
+            false
+        }
+    });
     let name = u.name.clone();
     let trans = u.trans;
     let seed = state.seed;
@@ -257,7 +267,7 @@ pub(crate) fn begin_turn(state: &mut CombatState) {
     } else {
         false
     };
-    drop(u);
+    let _ = u;
     if lost_turn {
         push_log(
             state,
