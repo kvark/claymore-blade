@@ -68,10 +68,23 @@ impl Renderer {
                 verts.push(MeshVertex {
                     pos: v.position,
                     normal: v.normal,
+                    joints: 0,
+                    weights: 0x0000_00FF,
                 });
             }
         }
         let prism = upload_slice(context, "prism", &verts);
+        let mut fighter_verts: Vec<MeshVertex> = Vec::new();
+        for (pos, normal, joint, weights) in crate::skel::fighter_vertices() {
+            fighter_verts.push(MeshVertex {
+                pos,
+                normal,
+                joints: joint,
+                weights,
+            });
+        }
+        let fighter = upload_slice(context, "fighter", &fighter_verts);
+        let fighter_count = fighter_verts.len() as u32;
         let quad_data = [
             QuadVertex { pos: [0.0, 0.0] },
             QuadVertex { pos: [1.0, 0.0] },
@@ -125,6 +138,8 @@ impl Renderer {
             flat,
             prism,
             prism_count: verts.len() as u32,
+            fighter,
+            fighter_count,
             quad,
             sampler,
             pixel,
@@ -137,5 +152,4 @@ impl Renderer {
             format,
         }
     }
-
 }
