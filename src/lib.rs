@@ -23,4 +23,12 @@ pub mod world;
 pub use app::run;
 pub use hex::Axial;
 
-#[cfg(target_arch = 
+#[cfg(target_arch = "wasm32")]
+mod web_start {
+    use wasm_bindgen::prelude::*;
+
+    #[wasm_bindgen]
+    pub fn start() {
+        crate::run();
+    }
+}
