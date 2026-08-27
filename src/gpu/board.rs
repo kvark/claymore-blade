@@ -1,4 +1,5 @@
 use super::*;
+use crate::skel::{pose_fighter, PoseInput};
 
 impl Renderer {
     pub(super) fn draw_board(
@@ -13,8 +14,9 @@ impl Renderer {
         let pan = Self::pan(game, w, h);
         let yaw = game.ui.yaw;
         let (ox, oy) = camera_origin(combat.cols, combat.rows, size, w, h, pan, game.ui.zoom, yaw);
-        // Keep lighting direction consistent in world space while the board rotates.
         let (lx, lz) = rotate_yaw(0.55, -0.15, yaw);
+        let actor = current_unit(combat);
+        let (lamp0, lamp0c, lamp1, lamp1c) = combat_lamps(combat, actor, size, yaw, game);
         let mut rc = pass.with(&self.hunt);
         rc.bind(
             0,
@@ -23,6 +25,10 @@ impl Renderer {
                     origin_zoom: [ox, oy, game.ui.zoom, 0.0],
                     screen: [w, h, 0.0, 0.0],
                     light_dir: [lx, 0.72, lz, 0.0],
+                    lamp0,
+                    lamp0c,
+                    lamp1,
+                    lamp1c,
                 },
             },
         );
@@ -33,13 +39,9 @@ impl Renderer {
             let height = terrain_height(*terrain, size);
             let (x, z) = axial_to_world_yaw(*hex, size, yaw);
             let mut color = match terrain {
-                // Stagnant, oily water
                 Terrain::Water => [0.10, 0.12, 0.14],
-                // Packed ash-dirt
                 Terrain::Mud => [0.22, 0.16, 0.12],
-                // Broken concrete / brick
                 Terrain::Ruin => [0.26, 0.24, 0.22],
-                // Dead grass / scorched ground
                 Terrain::Grass => [0.14, 0.15, 0.12],
             };
             if preview.iter().any(|h| h.q == hex.q && h.r == hex.r) {
@@ -58,24 +60,42 @@ impl Renderer {
                     locals: HuntLocal {
                         world: [x, 0.0, z, size * 0.92],
                         color: [color[0], color[1], color[2], height.max(0.04)],
+                        pose: [1.0, 0.0, 0.0, 0.0],
                     },
                 },
             );
             rc.draw(0, self.prism_count, 0, 1);
         }
+        let t = game.fx.time;
+        let hurt = game.fx.hitstop > 0.0 || game.fx.flash > 0.0;
         for u in &combat.units {
             if u.dead {
                 continue;
             }
-            for cell in live_cells(u) {
-                let (x, z) = axial_to_world_yaw(cell, size, yaw);
-                let hgt = size * if u.side == Side::Enemy { 0.62 } else { 0.44 };
+            let cell = core_hex(u);
+            let (x, z) = axial_to_world_yaw(cell, size, yaw);
+            let acting = actor.map(|a| a.id == u.id).unwrap_or(false);
+            let bones = pose_fighter(&PoseInput {
+                x,
+                z,
+                size,
+                facing: u.facing,
+                cam_yaw: yaw,
+                time: t + (u.id.bytes().fold(0u32, |a, b| a.wrapping_add(b as u32)) as f32) * 0.07,
+                color: u.color,
+                side: u.side,
+                acting,
+                hurt: hurt && acting,
+                trans: u.trans,
+            });
+            for b in bones {
                 rc.bind(
                     1,
                     &HuntDraw {
                         locals: HuntLocal {
-                            world: [x, 0.0, z, size * 0.55],
-                            color: [u.color[0], u.color[1], u.color[2], hgt],
+                            world: [b.x, b.y, b.z, b.radius],
+                            color: [b.rgb[0], b.rgb[1], b.rgb[2], b.height],
+                            pose: [b.yaw.cos(), b.yaw.sin(), b.lean, b.glow],
                         },
                     },
                 );
@@ -83,4 +103,39 @@ impl Renderer {
             }
         }
     }
+}
+
+fn combat_lamps(
+    combat: &CombatState,
+    actor: Option<&crate::combat::Unit>,
+    size: f32,
+    yaw: u8,
+    game: &Game,
+) -> ([f32; 4], [f32; 4], [f32; 4], [f32; 4]) {
+    let place = |hex: crate::hex::Axial, y: f32| {
+        let (x, z) = axial_to_world_yaw(hex, size, yaw);
+        [x, y, z, 1.35]
+    };
+    let (lamp0, lamp0c) = if let Some(u) = actor {
+        let p = place(core_hex(u), size * 0.55);
+        let gold = [1.0, 0.78, 0.42, size * 3.2];
+        (p, gold)
+    } else {
+        ([0.0, size, 0.0, 0.0], [0.0, 0.0, 0.0, size])
+    };
+    let (lamp1, lamp1c) = if let Some(hex) = game.ui.hover {
+        let p = place(hex, size * 0.35);
+        let tint = if game.ui.selected_skill.is_some() {
+            [0.95, 0.28, 0.18, size * 2.4]
+        } else {
+            [0.45, 0.75, 0.35, size * 2.2]
+        };
+        (p, tint)
+    } else if let Some(e) = combat.units.iter().find(|u| !u.dead && u.side == Side::Enemy) {
+        let p = place(core_hex(e), size * 0.5);
+        ([p[0], p[1], p[2], 0.85 + e.trans as f32 * 0.006], [0.85, 0.18, 0.14, size * 2.8])
+    } else {
+        ([0.0, size, 0.0, 0.0], [0.0, 0.0, 0.0, size])
+    };
+    (lamp0, lamp0c, lamp1, lamp1c)
 }
