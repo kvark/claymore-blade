@@ -106,6 +106,7 @@ struct HuntLocal {
     world: [f32; 4],
     color: [f32; 4],
     pose: [f32; 4],
+    joints: [[f32; 12]; 8],
 }
 
 #[derive(blade_macros::ShaderData)]
@@ -117,6 +118,8 @@ struct HuntDraw {
 struct MeshVertex {
     pos: [f32; 3],
     normal: [f32; 3],
+    joints: u32,
+    weights: u32,
 }
 
 #[repr(C)]
@@ -160,6 +163,8 @@ pub struct Renderer {
     flat: gpu::RenderPipeline,
     prism: gpu::Buffer,
     prism_count: u32,
+    fighter: gpu::Buffer,
+    fighter_count: u32,
     quad: gpu::Buffer,
     sampler: gpu::Sampler,
     pixel: gpu::Sampler,
