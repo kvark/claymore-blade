@@ -17,17 +17,10 @@ pub mod io;
 pub mod iso;
 pub mod prism;
 pub mod rng;
+pub mod skel;
 pub mod world;
 
 pub use app::run;
 pub use hex::Axial;
 
-#[cfg(target_arch = "wasm32")]
-mod web_start {
-    use wasm_bindgen::prelude::*;
-
-    #[wasm_bindgen]
-    pub fn start() {
-        crate::run();
-    }
-}
+#[cfg(target_arch = 
