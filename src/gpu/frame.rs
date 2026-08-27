@@ -94,6 +94,7 @@ impl Renderer {
         context.destroy_sampler(self.sampler);
         context.destroy_sampler(self.pixel);
         context.destroy_buffer(self.prism);
+        context.destroy_buffer(self.fighter);
         context.destroy_buffer(self.quad);
         context.destroy_render_pipeline(&mut self.hunt);
         context.destroy_render_pipeline(&mut self.flat);
@@ -110,5 +111,4 @@ impl Renderer {
             .map(|t| t.view)
             .unwrap_or(self.white.view)
     }
-
 }
