@@ -89,6 +89,10 @@ struct HuntGlobals {
     origin_zoom: [f32; 4],
     screen: [f32; 4],
     light_dir: [f32; 4],
+    lamp0: [f32; 4],
+    lamp0c: [f32; 4],
+    lamp1: [f32; 4],
+    lamp1c: [f32; 4],
 }
 
 #[derive(blade_macros::ShaderData)]
@@ -101,6 +105,7 @@ struct HuntFrame {
 struct HuntLocal {
     world: [f32; 4],
     color: [f32; 4],
+    pose: [f32; 4],
 }
 
 #[derive(blade_macros::ShaderData)]
