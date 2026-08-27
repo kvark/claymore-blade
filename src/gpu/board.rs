@@ -1,5 +1,5 @@
 use super::*;
-use crate::skel::{pose_fighter, PoseInput};
+use crate::skel::{identity_palette, joint_palette, pose_fighter, PoseInput};
 
 impl Renderer {
     pub(super) fn draw_board(
@@ -61,6 +61,7 @@ impl Renderer {
                         world: [x, 0.0, z, size * 0.92],
                         color: [color[0], color[1], color[2], height.max(0.04)],
                         pose: [1.0, 0.0, 0.0, 0.0],
+                        joints: identity_palette(),
                     },
                 },
             );
@@ -88,19 +89,21 @@ impl Renderer {
                 hurt: hurt && acting,
                 trans: u.trans,
             });
-            for b in bones {
-                rc.bind(
-                    1,
-                    &HuntDraw {
-                        locals: HuntLocal {
-                            world: [b.x, b.y, b.z, b.radius],
-                            color: [b.rgb[0], b.rgb[1], b.rgb[2], b.height],
-                            pose: [b.yaw.cos(), b.yaw.sin(), b.lean, b.glow],
-                        },
+            let glow = bones[1].glow;
+            rc.bind_vertex(0, self.fighter.into());
+            rc.bind(
+                1,
+                &HuntDraw {
+                    locals: HuntLocal {
+                        world: [0.0, 0.0, 0.0, 1.0],
+                        color: [u.color[0], u.color[1], u.color[2], 1.0],
+                        pose: [1.0, 0.0, 0.0, glow],
+                        joints: joint_palette(&bones),
                     },
-                );
-                rc.draw(0, self.prism_count, 0, 1);
-            }
+                },
+            );
+            rc.draw(0, self.fighter_count, 0, 1);
+            rc.bind_vertex(0, self.prism.into());
         }
     }
 }
