@@ -76,6 +76,7 @@ impl Renderer {
             let cell = core_hex(u);
             let (x, z) = axial_to_world_yaw(cell, size, yaw);
             let acting = actor.map(|a| a.id == u.id).unwrap_or(false);
+            let (clip, clip_u) = game.fx.clip_of(&u.id);
             let bones = pose_fighter(&PoseInput {
                 x,
                 z,
@@ -88,6 +89,8 @@ impl Renderer {
                 acting,
                 hurt: hurt && acting,
                 trans: u.trans,
+                clip,
+                clip_u,
             });
             let glow = bones[1].glow;
             rc.bind_vertex(0, self.fighter.into());
