@@ -2,6 +2,7 @@
 //! (skin.inc-style joint palette + packed joints/weights).
 
 use crate::combat::Side;
+use crate::fx::FightClip;
 
 #[derive(Clone, Copy)]
 pub struct Bone {
@@ -28,6 +29,8 @@ pub struct PoseInput {
     pub acting: bool,
     pub hurt: bool,
     pub trans: i32,
+    pub clip: FightClip,
+    pub clip_u: f32,
 }
 
 /// 7-bone humanoid: hip, torso, head, two arms, two legs.
@@ -64,7 +67,7 @@ pub fn pose_fighter(p: &PoseInput) -> [Bone; 7] {
     let skin = p.color;
     let cloth = [(skin[0] * 0.72).min(1.0), (skin[1] * 0.72).min(1.0), (skin[2] * 0.72).min(1.0)];
     let head_c = [(skin[0] * 1.08).min(1.0), (skin[1] * 1.04).min(1.0), (skin[2] * 0.96).min(1.0)];
-    [
+    let mut bones = [
         Bone { x: p.x, y: hip_y, z: p.z, radius: s * 0.16, height: hip_h, yaw: face, lean: 0.0, rgb: cloth, glow: glow * 0.3 },
         Bone { x: p.x + fwd_x * s * 0.02, y: torso_y, z: p.z + fwd_z * s * 0.02, radius: s * 0.14, height: torso_h, yaw: face, lean: sway * 0.15, rgb: skin, glow },
         Bone { x: p.x + fwd_x * s * 0.03, y: head_y, z: p.z + fwd_z * s * 0.03, radius: s * 0.10, height: head_h, yaw: face, lean: sway * 0.08, rgb: head_c, glow: glow * 0.6 + act * 0.2 },
@@ -72,7 +75,75 @@ pub fn pose_fighter(p: &PoseInput) -> [Bone; 7] {
         Bone { x: p.x - right_x * arm_span + fwd_x * l_swing, y: torso_y, z: p.z - right_z * arm_span + fwd_z * l_swing, radius: s * 0.06, height: arm_h, yaw: face - 0.35, lean: 0.15, rgb: cloth, glow: 0.0 },
         Bone { x: p.x + right_x * leg_span + fwd_x * l_swing * 0.6, y: limb_h * 0.45 + bob * 0.3, z: p.z + right_z * leg_span + fwd_z * l_swing * 0.6, radius: s * 0.07, height: limb_h, yaw: face, lean: step * 0.2, rgb: cloth, glow: 0.0 },
         Bone { x: p.x - right_x * leg_span + fwd_x * r_swing * 0.6, y: limb_h * 0.45 + bob * 0.3, z: p.z - right_z * leg_span + fwd_z * r_swing * 0.6, radius: s * 0.07, height: limb_h, yaw: face, lean: -step * 0.2, rgb: cloth, glow: 0.0 },
-    ]
+    ];
+    apply_clip(&mut bones, p.clip, p.clip_u, s, fwd_x, fwd_z);
+    bones
+}
+
+fn pulse(u: f32, peak: f32) -> f32 {
+    if u <= peak {
+        (u / peak.max(0.001)).clamp(0.0, 1.0)
+    } else {
+        (1.0 - (u - peak) / (1.0 - peak).max(0.001)).clamp(0.0, 1.0)
+    }
+}
+
+fn apply_clip(bones: &mut [Bone; 7], clip: FightClip, u: f32, s: f32, fwd_x: f32, fwd_z: f32) {
+    let u = u.clamp(0.0, 1.0);
+    match clip {
+        FightClip::Idle | FightClip::Ready => {}
+        FightClip::Slash => {
+            let k = pulse(u, 0.38);
+            let reach = k * s * 0.28;
+            bones[1].yaw += k * 0.35;
+            bones[1].lean += k * 0.12;
+            bones[3].x += fwd_x * reach;
+            bones[3].z += fwd_z * reach;
+            bones[3].y += k * s * 0.06;
+            bones[3].yaw += k * 0.8;
+            bones[3].lean -= k * 0.45;
+            bones[3].glow = (bones[3].glow + k * 0.7).min(1.2);
+            bones[4].x -= fwd_x * reach * 0.25;
+            bones[4].z -= fwd_z * reach * 0.25;
+        }
+        FightClip::Lunge => {
+            let k = pulse(u, 0.45);
+            let reach = k * s * 0.20;
+            for b in bones.iter_mut() {
+                b.x += fwd_x * reach;
+                b.z += fwd_z * reach;
+            }
+            bones[0].y -= k * s * 0.03;
+            bones[5].y -= k * s * 0.02;
+        }
+        FightClip::Guard => {
+            let k = pulse(u, 0.2).max(0.55);
+            bones[0].y -= k * s * 0.03;
+            bones[3].x += fwd_x * s * 0.10 * k;
+            bones[3].z += fwd_z * s * 0.10 * k;
+            bones[4].x += fwd_x * s * 0.10 * k;
+            bones[4].z += fwd_z * s * 0.10 * k;
+            bones[3].y += k * s * 0.04;
+            bones[4].y += k * s * 0.04;
+        }
+        FightClip::Raise => {
+            let k = pulse(u, 0.4).max(0.4);
+            bones[3].y += k * s * 0.16;
+            bones[4].y += k * s * 0.14;
+            bones[1].glow = (bones[1].glow + k * 0.5).min(1.2);
+            bones[2].glow = (bones[2].glow + k * 0.4).min(1.2);
+        }
+        FightClip::Hurt => {
+            let k = pulse(u, 0.25);
+            let back = k * s * 0.14;
+            for b in bones.iter_mut() {
+                b.x -= fwd_x * back;
+                b.z -= fwd_z * back;
+            }
+            bones[1].lean -= k * 0.25;
+            bones[2].y -= k * s * 0.03;
+        }
+    }
 }
 
 pub const JOINTS: usize = 8;
@@ -183,9 +254,24 @@ mod tests {
         let bones = pose_fighter(&PoseInput {
             x: 0.0, z: 0.0, size: 40.0, facing: 1, cam_yaw: 0, time: 0.7,
             color: [0.8, 0.7, 0.5], side: Side::Player, acting: true, hurt: false, trans: 20,
+            clip: FightClip::Idle, clip_u: 0.0,
         });
         assert!(bones.iter().all(|b| b.height > 0.0 && b.radius > 0.0));
         assert!(bones[2].y > bones[0].y, "head sits above hip");
         assert_eq!(fighter_vertices().len() % 3, 0);
+    }
+
+    #[test]
+    fn slash_reaches_forward() {
+        let base = PoseInput {
+            x: 0.0, z: 0.0, size: 40.0, facing: 0, cam_yaw: 0, time: 0.0,
+            color: [1.0, 1.0, 1.0], side: Side::Player, acting: false, hurt: false, trans: 0,
+            clip: FightClip::Idle, clip_u: 0.0,
+        };
+        let idle = pose_fighter(&base);
+        let slash = pose_fighter(&PoseInput { clip: FightClip::Slash, clip_u: 0.38, ..base });
+        let dx = slash[3].x - idle[3].x;
+        let dz = slash[3].z - idle[3].z;
+        assert!(dx * dx + dz * dz > 20.0, "weapon arm should lunge on slash");
     }
 }
