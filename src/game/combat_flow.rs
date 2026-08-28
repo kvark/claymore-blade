@@ -152,6 +152,17 @@ impl Game {
                 }
             }
         }
+        if let Some((id, _)) = actor.as_ref() {
+            match action {
+                PlayerAction::Move(_) => self.fx.play_clip(id, crate::fx::FightClip::Lunge),
+                PlayerAction::Raise => self.fx.play_clip(id, crate::fx::FightClip::Raise),
+                PlayerAction::Wait => self.fx.play_clip(id, crate::fx::FightClip::Ready),
+                PlayerAction::Skill { id: skill, .. } if skill == "guard" => {
+                    self.fx.play_clip(id, crate::fx::FightClip::Guard)
+                }
+                PlayerAction::Skill { .. } => self.fx.play_clip(id, crate::fx::FightClip::Slash),
+            }
+        }
         if let Some((_, hex)) = actor {
             let p = self.hex_screen(hex);
             match action {
@@ -173,6 +184,7 @@ impl Game {
         }
         #[derive(Clone)]
         struct Ev {
+            id: String,
             hex: Axial,
             dmg: i32,
             kind: &'static str,
@@ -190,6 +202,7 @@ impl Game {
                     .filter_map(|u| {
                         let prev = before.iter().find(|b| b.0 == u.id)?;
                         Some(Ev {
+                            id: u.id.clone(),
                             hex: core_hex(u),
                             dmg: (prev.1 - u.hp).max(0),
                             kind: if u.dead && !prev.2 { "death" } else { "hit" },
@@ -209,6 +222,7 @@ impl Game {
             if ev.dmg > 0 {
                 self.fx.emit_hit(p[0], p[1] - 0.02, ev.dmg, ev.kind);
                 audio::play("hit");
+                self.fx.play_clip(&ev.id, crate::fx::FightClip::Hurt);
             }
             if ev.heal > 0 {
                 self.fx.emit_heal(p[0], p[1], ev.heal);
@@ -279,5 +293,4 @@ impl Game {
         self.combat = None;
         self.persist();
     }
-
 }
