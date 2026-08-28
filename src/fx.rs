@@ -1,6 +1,9 @@
 //! Presentation juice. Never mutates combat math.
 
+use crate::clip::ClipBank;
 use crate::rng::Rng;
+
+pub use crate::clip::FightClip;
 
 #[derive(Clone, Debug)]
 pub struct Particle {
@@ -45,6 +48,7 @@ pub struct Fx {
     pub particles: Vec<Particle>,
     pub floaters: Vec<Floater>,
     pub bursts: Vec<Burst>,
+    pub clips: ClipBank,
     rng: Rng,
 }
 
@@ -58,6 +62,7 @@ impl Default for Fx {
             particles: Vec::new(),
             floaters: Vec::new(),
             bursts: Vec::new(),
+            clips: ClipBank::default(),
             rng: Rng::new(0xC1A4_0001),
         }
     }
@@ -94,6 +99,7 @@ impl Fx {
             b.life -= sim;
         }
         self.bursts.retain(|b| b.life > 0.0);
+        self.clips.tick(self.time);
     }
 
     pub fn shake(&self, w: f32, h: f32) -> [f32; 2] {
@@ -304,6 +310,14 @@ impl Fx {
             tint,
         });
     }
+
+    pub fn play_clip(&mut self, unit: &str, clip: FightClip) {
+        self.clips.play(unit, clip, self.time);
+    }
+
+    pub fn clip_of(&self, unit: &str) -> (FightClip, f32) {
+        self.clips.of(unit, self.time)
+    }
 }
 
 #[cfg(test)]
@@ -326,5 +340,15 @@ mod tests {
         assert!(!fx.particles.is_empty());
         assert!(!fx.floaters.is_empty());
         assert!(fx.trauma > 0.0);
+    }
+
+    #[test]
+    fn clip_plays_then_expires() {
+        let mut fx = Fx::default();
+        fx.play_clip("clare", FightClip::Slash);
+        assert_eq!(fx.clip_of("clare").0, FightClip::Slash);
+        fx.time = 1.0;
+        fx.clips.tick(fx.time);
+        assert_eq!(fx.clip_of("clare").0, FightClip::Idle);
     }
 }
