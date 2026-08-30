@@ -8,7 +8,7 @@ mod types;
 
 pub use ai::run_ai;
 pub use resolve::act;
-pub use rules::{can_use, legal_moves, legal_targets, zone_for};
+pub use rules::{can_use, legal_moves, legal_targets, raki_can_help, zone_for};
 pub use setup::{core_hex, create_battle, current_unit, effect_scale, live_cells, living};
 pub use types::*;
 
