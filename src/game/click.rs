@@ -67,17 +67,6 @@ impl Game {
                 audio::error();
                 return;
             }
-            if st == Some(world::WorldStatus::Dead) {
-                audio::error();
-                self.result_title = dialog::RESULT_LATE_TITLE.into();
-                self.result_body = dialog::RESULT_LATE.into();
-                audio::music_defeat();
-                self.result_win = Some(false);
-                self.scene = None;
-                self.mode = Mode::Result;
-                self.persist();
-                return;
-            }
             audio::confirm();
             self.world.party_x = loc.x;
             self.world.party_y = loc.y;
@@ -88,9 +77,15 @@ impl Game {
                 self.world.flags.insert("raki-followed".into(), true);
             }
             if loc.id == "doga"
+                && st == Some(world::WorldStatus::Dead)
+                && self.world.flags.get("doga-late-talked") != Some(&true)
+            {
+                self.scene = Some(SceneState::new(SceneId::TownDogaLate));
+                self.mode = Mode::Scene;
+            } else if loc.id == "doga"
                 && self.world.flags.get("doga-talked") != Some(&true)
-                && self.world.locations.get("doga").map(|s| s.status)
-                    != Some(world::WorldStatus::Cleared)
+                && st != Some(world::WorldStatus::Cleared)
+                && st != Some(world::WorldStatus::Dead)
             {
                 self.scene = Some(SceneState::new(SceneId::TownDoga));
                 self.mode = Mode::Scene;
@@ -108,17 +103,14 @@ impl Game {
             .last_town
             .clone()
             .unwrap_or_else(|| "doga".into());
-        let loc = catalog::location(&id);
         if hud::town_hunt().contains(nx, ny) {
-            if let Some(enc_id) = loc.and_then(|l| l.encounter) {
-                let st = self.world.locations.get(&id).map(|s| s.status);
-                if st == Some(world::WorldStatus::Cleared)
-                    || st == Some(world::WorldStatus::Locked)
-                    || st == Some(world::WorldStatus::Dead)
-                {
-                    audio::error();
-                    return;
-                }
+            let st = self.world.locations.get(&id).map(|s| s.status);
+            if st == Some(world::WorldStatus::Cleared) || st == Some(world::WorldStatus::Locked)
+            {
+                audio::error();
+                return;
+            }
+            if let Some(enc_id) = world::hunt_for(&self.world, &id) {
                 audio::play("draw");
                 self.start_encounter(enc_id);
             } else {
@@ -126,7 +118,7 @@ impl Game {
             }
         } else if hud::town_rest().contains(nx, ny) {
             audio::play("cloth");
-            self.world.hours += 8.0;
+            world::tick_hours(&mut self.world, 8.0);
             self.persist();
         } else if hud::town_leave().contains(nx, ny) {
             audio::play("close");
@@ -152,6 +144,7 @@ impl Game {
     pub(super) fn begin_battle(&mut self, enc: &catalog::EncounterDef) {
         let seed = (self.world.hours as u32).wrapping_mul(997) + 13;
         let mut combat = create_battle(enc, &self.world.party, seed.max(1));
+        combat.support_raki = combat.support_raki || self.world.raki;
         if current_unit(&combat)
             .map(|u| u.side == Side::Enemy)
             .unwrap_or(false)
