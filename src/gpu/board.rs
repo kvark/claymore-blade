@@ -80,7 +80,7 @@ impl Renderer {
             let bones = pose_fighter(&PoseInput {
                 x,
                 z,
-                size,
+                size: if u.template_id == "raki" { size * 0.72 } else { size },
                 facing: u.facing,
                 cam_yaw: yaw,
                 time: t + (u.id.bytes().fold(0u32, |a, b| a.wrapping_add(b as u32)) as f32) * 0.07,

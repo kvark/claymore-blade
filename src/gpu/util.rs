@@ -42,7 +42,7 @@ pub(super) fn upload_slice<T: Copy>(context: &gpu::Context, name: &str, data: &[
     unsafe {
         ptr::copy_nonoverlapping(data.as_ptr(), buf.data() as *mut T, data.len());
     }
-    context.sync_buffer(buf, gpu::BufferTarget::Data);
+    context.sync_buffer(buf.into(), bytes, gpu::BufferTarget::Data);
     buf
 }
 
@@ -80,7 +80,7 @@ pub(super) fn upload_rgba(context: &gpu::Context, name: &str, width: u32, height
     unsafe {
         ptr::copy_nonoverlapping(px.as_ptr(), upload.data(), px.len());
     }
-    context.sync_buffer(upload, gpu::BufferTarget::Data);
+    context.sync_buffer(upload.into(), px.len() as u64, gpu::BufferTarget::Data);
     let mut encoder = context.create_command_encoder(gpu::CommandEncoderDesc {
         name: "tex-upload",
         buffer_count: 1,

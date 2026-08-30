@@ -31,6 +31,21 @@ impl Renderer {
                 [loc.x - pw * 0.5, loc.y - ph * 0.78, pw, ph],
                 tint,
             );
+            if st == Some(crate::world::WorldStatus::Beacon) {
+                if let Some(ls) = game.world.locations.get(loc.id) {
+                    if ls.hours_left > 0.0 {
+                        self.text(
+                            &mut rc,
+                            &format!("{:.0}h", ls.hours_left),
+                            loc.x - 0.018,
+                            loc.y + ph * 0.18,
+                            0.011,
+                        );
+                    }
+                }
+            } else if st == Some(crate::world::WorldStatus::Dead) {
+                self.text(&mut rc, "DARK", loc.x - 0.018, loc.y + ph * 0.18, 0.011);
+            }
         }
         // Clare: face the walk direction, procedural step bob + lean.
         let facing = if game.facing >= 0.0 { 1.0 } else { -1.0 };
@@ -101,10 +116,11 @@ impl Renderer {
         self.text(
             &mut rc,
             &format!(
-                "CLARE  NO.{}   {}   KARMA {}",
+                "CLARE  NO.{}   {}   KARMA {}{}",
                 game.world.rank,
                 clock_label(game.world.hours),
-                game.world.karma
+                game.world.karma,
+                if game.world.raki { "   RAKI" } else { "" }
             ),
             0.03,
             0.025,
@@ -145,12 +161,35 @@ impl Renderer {
         if let Some(loc) = loc {
             self.text(&mut rc, loc.name, 0.08, 0.10, 0.024);
             self.text(&mut rc, loc.region, 0.08, 0.16, 0.014);
-            self.text(&mut rc, loc.blurb, 0.08, 0.24, 0.012);
+            let dead = game
+                .world
+                .locations
+                .get(loc.id)
+                .map(|s| s.status == crate::world::WorldStatus::Dead)
+                .unwrap_or(false);
+            let blurb = if dead {
+                crate::dialog::RESULT_LATE
+            } else {
+                loc.blurb
+            };
+            self.text(&mut rc, blurb, 0.08, 0.24, 0.012);
         }
-        self.kenney_btn(&mut rc, "kenney/ui/button.png", hud::town_hunt(), "HUNT", false);
+        let nest = game
+            .world
+            .last_town
+            .as_deref()
+            .and_then(|id| game.world.locations.get(id))
+            .map(|s| s.status == crate::world::WorldStatus::Dead)
+            .unwrap_or(false);
+        self.kenney_btn(
+            &mut rc,
+            if nest { "kenney/ui/button-red.png" } else { "kenney/ui/button.png" },
+            hud::town_hunt(),
+            if nest { "NEST" } else { "HUNT" },
+            false,
+        );
         self.kenney_btn(&mut rc, "kenney/ui/button-grey.png", hud::town_rest(), "REST", false);
         self.kenney_btn(&mut rc, "kenney/ui/button-brown.png", hud::town_leave(), "LEAVE", false);
         self.draw_fx(&mut rc, game);
     }
-
 }
