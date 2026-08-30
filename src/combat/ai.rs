@@ -33,7 +33,13 @@ pub fn run_ai(state: &mut CombatState) {
         }
         let from = core_hex(&u);
         let mut foes_owned: Vec<_> = foes.into_iter().cloned().collect();
-        foes_owned.sort_by_key(|a| hex_distance(from, core_hex(a)));
+        foes_owned.sort_by_key(|a| {
+            let lured = a.statuses.iter().any(|s| s.id == "lured");
+            let boy = a.template_id == "raki";
+            let d = hex_distance(from, core_hex(a));
+            // Lured first, then warriors, then the boy if he is in biting range.
+            (!lured, boy && d > 1, d)
+        });
         let nearest = foes_owned[0].clone();
         if let Some(skill) = pick_ai_skill(state, &u) {
             if u.trans < skill.trans && !u.raised_trans {

@@ -97,6 +97,11 @@ impl Game {
                 audio::click();
                 self.mode = Mode::Town;
             }
+            SceneId::TownDogaLate => {
+                self.world.flags.insert("doga-late-talked".into(), true);
+                audio::click();
+                self.mode = Mode::Town;
+            }
         }
         self.persist();
     }

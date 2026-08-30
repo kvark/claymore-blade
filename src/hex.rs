@@ -169,6 +169,16 @@ pub fn hex_sweep(origin: Axial, facing: i32) -> Vec<Axial> {
     dirs.into_iter().map(|d| origin.add(d)).collect()
 }
 
+pub fn hex_step_toward(from: Axial, to: Axial) -> Axial {
+    if hex_eq(from, to) {
+        return from;
+    }
+    hex_neighbors(from)
+        .into_iter()
+        .min_by_key(|n| hex_distance(*n, to))
+        .unwrap_or(from)
+}
+
 pub fn facing_toward(from: Axial, to: Axial) -> i32 {
     let dq = to.q - from.q;
     let dr = to.r - from.r;
@@ -225,5 +235,13 @@ mod tests {
     #[test]
     fn sweep_is_three() {
         assert_eq!(hex_sweep(Axial::new(0, 0), 0).len(), 3);
+    }
+
+    #[test]
+    fn step_toward_closes_distance() {
+        let a = Axial::new(0, 0);
+        let b = Axial::new(3, 0);
+        let s = hex_step_toward(a, b);
+        assert_eq!(hex_distance(s, b), 2);
     }
 }

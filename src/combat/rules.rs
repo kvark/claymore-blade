@@ -24,7 +24,7 @@ pub fn can_use(u: &Unit, skill: &SkillDef, has_raki: bool) -> bool {
     if u.ap < skill.ap || u.trans < skill.trans || u.yoki < skill.yoki {
         return false;
     }
-    if skill.id == "drop" && !has_raki {
+    if skill.id == "drop" && !has_raki && u.stats.c < 12 {
         return false;
     }
     if skill.id == "lure" && u.template_id != "raki" {
