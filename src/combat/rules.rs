@@ -7,11 +7,27 @@ use crate::hex::{
     hex_sweep, Axial,
 };
 
+pub fn raki_can_help(state: &CombatState, actor_id: &str) -> bool {
+    match state.units.iter().find(|u| u.template_id == "raki") {
+        Some(raki) if !raki.dead => {
+            let Some(actor) = state.units.iter().find(|u| u.id == actor_id) else {
+                return false;
+            };
+            hex_distance(core_hex(actor), core_hex(raki)) <= 3
+        }
+        Some(_) => false,
+        None => state.support_raki,
+    }
+}
+
 pub fn can_use(u: &Unit, skill: &SkillDef, has_raki: bool) -> bool {
     if u.ap < skill.ap || u.trans < skill.trans || u.yoki < skill.yoki {
         return false;
     }
     if skill.id == "drop" && !has_raki {
+        return false;
+    }
+    if skill.id == "lure" && u.template_id != "raki" {
         return false;
     }
     if skill.id == "ripple"
@@ -131,4 +147,38 @@ pub fn legal_targets(state: &CombatState, unit_id: &str, skill_id: &str) -> Vec<
         }
     }
     cells
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drop_needs_the_boy_close() {
+        let enc = catalog::encounter("doga-yoma").unwrap();
+        let mut s = create_battle(enc, &["clare".into()], 3);
+        assert!(s.units.iter().any(|u| u.template_id == "raki"));
+        if let Some(r) = s.units.iter_mut().find(|u| u.template_id == "raki") {
+            r.origin = Axial::new(s.cols - 1, 0);
+        }
+        if let Some(c) = s.units.iter_mut().find(|u| u.id == "clare") {
+            c.origin = Axial::new(0, s.rows - 1);
+        }
+        assert!(!raki_can_help(&s, "clare"));
+        let clare = s.units.iter().find(|u| u.id == "clare").cloned().unwrap();
+        let drop = catalog::skill("drop").unwrap();
+        assert!(!can_use(&clare, drop, false));
+        assert!(can_use(&clare, drop, true));
+    }
+
+    #[test]
+    fn lure_is_only_the_boy() {
+        let enc = catalog::encounter("doga-yoma").unwrap();
+        let s = create_battle(enc, &["clare".into()], 3);
+        let lure = catalog::skill("lure").unwrap();
+        let clare = s.units.iter().find(|u| u.id == "clare").unwrap();
+        let raki = s.units.iter().find(|u| u.template_id == "raki").unwrap();
+        assert!(!can_use(clare, lure, true));
+        assert!(can_use(raki, lure, true));
+    }
 }
