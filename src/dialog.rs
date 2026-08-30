@@ -9,6 +9,7 @@ pub enum SceneId {
     RecruitPieta,
     OpheliaIntro,
     TownDoga,
+    TownDogaLate,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -41,6 +42,7 @@ impl SceneState {
             SceneId::RecruitPieta => RECRUIT_PIETA,
             SceneId::OpheliaIntro => OPHELIA,
             SceneId::TownDoga => TOWN_DOGA,
+            SceneId::TownDogaLate => TOWN_DOGA_LATE,
         }
     }
 
@@ -90,7 +92,7 @@ impl SceneState {
                 label: "END HER",
                 yes: true,
             }],
-            SceneId::TownDoga => &[Choice {
+            SceneId::TownDoga | SceneId::TownDogaLate => &[Choice {
                 label: "CONTINUE",
                 yes: true,
             }],
@@ -222,6 +224,21 @@ const TOWN_DOGA: &[Line] = &[
     Line {
         speaker: "ELDER",
         text: "We lit the beacon three nights ago. Two families are gone.",
+    },
+];
+
+const TOWN_DOGA_LATE: &[Line] = &[
+    Line {
+        speaker: "ASH",
+        text: "You arrive to ash. The nest has moved into the cellars.",
+    },
+    Line {
+        speaker: "ASH",
+        text: "The well is empty of faces. The houses are not.",
+    },
+    Line {
+        speaker: "ASH",
+        text: "The boy is gone. No one left to hold your wrist.",
     },
 ];
 
