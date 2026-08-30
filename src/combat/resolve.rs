@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::catalog::{self, derived};
-use crate::hex::{facing_toward, hex_distance, hex_eq, place_footprint, Axial};
+use crate::hex::{facing_toward, hex_distance, hex_eq, hex_neighbors, place_footprint, Axial};
 use crate::rng::Rng;
 
 pub(crate) fn resolve_hit(
@@ -232,7 +232,7 @@ pub fn act(state: &mut CombatState, action: PlayerAction, is_player: bool) {
             let Some(skill) = catalog::skill(&id) else {
                 return;
             };
-            if !can_use(&u, skill, true) {
+            if !can_use(&u, skill, raki_can_help(state, &actor_id)) {
                 return;
             }
             let targets = legal_targets(state, &actor_id, &id);
@@ -281,6 +281,8 @@ pub fn act(state: &mut CombatState, action: PlayerAction, is_player: bool) {
                 if let Some(m) = msg {
                     push_log(state, "heal", m);
                 }
+            } else if skill.id == "lure" {
+                pull_lure(state, &actor_id, hex);
             } else {
                 push_log(
                     state,
@@ -299,7 +301,6 @@ pub fn act(state: &mut CombatState, action: PlayerAction, is_player: bool) {
                         skill.unblockable,
                     );
                 }
-                // simple leap relocation
                 if skill.shape == ShapeKind::Leap || skill.r#move != 0 {
                     if let Some(uu) = current_unit_mut(state) {
                         uu.origin = hex;
@@ -313,5 +314,111 @@ pub fn act(state: &mut CombatState, action: PlayerAction, is_player: bool) {
             }
             check_over(state);
         }
+    }
+}
+
+fn pull_lure(state: &mut CombatState, actor_id: &str, hex: Axial) {
+    let Some(actor) = state.units.iter().find(|u| u.id == actor_id).cloned() else {
+        return;
+    };
+    let from = core_hex(&actor);
+    let target_id = state
+        .units
+        .iter()
+        .find(|u| !u.dead && u.side != actor.side && live_cells(u).iter().any(|h| hex_eq(*h, hex)))
+        .map(|u| u.id.clone());
+    let Some(tid) = target_id else {
+        push_log(state, "miss", format!("{} waves at empty air.", actor.name));
+        return;
+    };
+    let occ = occupied(state, Some(&tid));
+    let dest = {
+        let Some(prey) = state.units.iter().find(|u| u.id == tid) else {
+            return;
+        };
+        let here = core_hex(prey);
+        hex_neighbors(here)
+            .into_iter()
+            .filter(|n| {
+                in_bounds(*n, state.cols, state.rows)
+                    && terrain_at(state, *n) != Terrain::Water
+                    && !occ.iter().any(|(h, _)| hex_eq(*h, *n))
+            })
+            .min_by_key(|n| hex_distance(*n, from))
+            .filter(|n| hex_distance(*n, from) < hex_distance(here, from))
+    };
+    let prey_name = state
+        .units
+        .iter()
+        .find(|u| u.id == tid)
+        .map(|u| u.name.clone())
+        .unwrap_or_default();
+    if let Some(step) = dest {
+        if let Some(prey) = state.units.iter_mut().find(|u| u.id == tid) {
+            prey.origin = step;
+            prey.facing = facing_toward(step, from);
+            prey.statuses.push(Status {
+                id: "lured".into(),
+                name: "Lured".into(),
+                turns: 2,
+                guard: 0,
+                telegraph: false,
+                afterimage: None,
+            });
+        }
+        push_log(
+            state,
+            "skill",
+            format!("{} lures {} closer.", actor.name, prey_name),
+        );
+    } else {
+        push_log(
+            state,
+            "skill",
+            format!("{} marks {}. It watches him.", actor.name, prey_name),
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lure_marks_or_pulls_the_yoma() {
+        let enc = catalog::encounter("doga-yoma").unwrap();
+        let mut s = create_battle(enc, &["clare".into()], 3);
+        let raki_turn = s
+            .order
+            .iter()
+            .position(|id| id == "raki")
+            .expect("raki in order");
+        s.turn = raki_turn;
+        let prey = s
+            .units
+            .iter()
+            .find(|u| u.side == Side::Enemy && !u.dead)
+            .cloned()
+            .expect("yoma");
+        let prey_hex = core_hex(&prey);
+        if let Some(r) = s.units.iter_mut().find(|u| u.template_id == "raki") {
+            r.origin = Axial::new((prey_hex.q - 2).max(0), prey_hex.r);
+            r.ap = 2;
+        }
+        act(
+            &mut s,
+            PlayerAction::Skill {
+                id: "lure".into(),
+                hex: prey_hex,
+            },
+            true,
+        );
+        let after = s.units.iter().find(|u| u.id == prey.id).unwrap();
+        let marked = after.statuses.iter().any(|st| st.id == "lured");
+        let logged = s
+            .log
+            .iter()
+            .any(|l| l.text.contains("lures") || l.text.contains("marks"));
+        assert!(marked || logged);
     }
 }
