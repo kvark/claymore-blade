@@ -177,6 +177,21 @@ pub fn create_battle(enc: &EncounterDef, party: &[String], seed: u32) -> CombatS
         units.push(u);
     }
 
+    if enc.raki {
+        if let Some(t) = find_template("raki") {
+            let taken: Vec<Axial> = units.iter().map(|u| u.origin).collect();
+            let origin = enc
+                .player_origins
+                .iter()
+                .copied()
+                .find(|h| !taken.iter().any(|o| hex_eq(*o, *h)))
+                .unwrap_or(Axial::new(2, enc.rows / 2 + 1));
+            let u = spawn(t, "raki".into(), origin, 1);
+            order.push(u.id.clone());
+            units.push(u);
+        }
+    }
+
     order.sort_by_key(|id| {
         let u = units.iter().find(|x| x.id == *id).unwrap();
         let noise = rng.int(0, 6);
@@ -227,6 +242,7 @@ pub fn create_battle(enc: &EncounterDef, party: &[String], seed: u32) -> CombatS
         log: Vec::new(),
         over: None,
         briefing: enc.briefing.into(),
+        support_raki: enc.raki,
     };
     begin_turn(&mut state);
     state
@@ -326,7 +342,11 @@ pub(crate) fn check_over(state: &mut CombatState) {
     if living(state, Some(Side::Enemy)).is_empty() {
         state.over = Some(true);
     }
-    if living(state, Some(Side::Player)).is_empty() {
+    let silvers_live = state
+        .units
+        .iter()
+        .any(|u| !u.dead && u.side == Side::Player && u.template_id != "raki");
+    if !silvers_live {
         state.over = Some(false);
     }
 }
@@ -346,6 +366,17 @@ mod tests {
         let enc = catalog::encounter("doga-yoma").unwrap();
         let s = create_battle(enc, &["clare".into()], 7);
         assert!(s.units.len() >= 3);
+        assert!(s.units.iter().any(|u| u.template_id == "raki"));
+        assert!(s.support_raki);
         assert!(current_unit(&s).is_some());
+    }
+
+    #[test]
+    fn nest_has_three_yoma_and_no_boy() {
+        let enc = catalog::encounter("doga-nest").unwrap();
+        let s = create_battle(enc, &["clare".into()], 1);
+        assert_eq!(s.units.iter().filter(|u| u.side == Side::Enemy).count(), 3);
+        assert!(!s.units.iter().any(|u| u.template_id == "raki"));
+        assert!(!s.support_raki);
     }
 }
