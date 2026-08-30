@@ -249,6 +249,21 @@ pub static SKILLS: &[SkillDef] = &[
         )
     },
     SkillDef {
+        ..sk(
+            "lure",
+            "Lure",
+            "A boy in the open. The yoma turns.",
+            1,
+            0,
+            0,
+            ShapeKind::Single,
+            4,
+            Attr::P,
+            Attr::P,
+            0,
+        )
+    },
+    SkillDef {
         self_cast: true,
         telegraph: true,
         ..sk(
@@ -493,6 +508,26 @@ pub static WARRIORS: &[UnitTemplate] = &[
         8,
         [0.78, 0.80, 0.83],
         48,
+    ),
+    unit(
+        "raki",
+        "Raki",
+        "The boy from Doga",
+        0,
+        Side::Player,
+        "art/raki.jpg",
+        "art/raki.jpg",
+        Stats {
+            s: 2,
+            a: 4,
+            c: 3,
+            p: 5,
+            w: 3,
+        },
+        &["lure"],
+        0,
+        [0.62, 0.48, 0.36],
+        16,
     ),
     unit(
         "miria",
@@ -798,6 +833,18 @@ pub static ENCOUNTERS: &[EncounterDef] = &[
         enemies: &[EnemySpawn { template: "yoma", origin: Axial { q: 6, r: 2 }, facing: 3 }, EnemySpawn { template: "yoma", origin: Axial { q: 8, r: 5 }, facing: 3 }],
         player_origins: &[Axial { q: 2, r: 4 }, Axial { q: 1, r: 3 }, Axial { q: 1, r: 5 }],
         karma: 8, rank: 0, recruit: &[], raki: true, flag: "doga-cleared",
+    },
+    EncounterDef {
+        id: "doga-nest", title: "Doga · the cellars",
+        briefing: "The beacon went dark. No villagers. Three of them live in the well now.",
+        art: "art/battle-doga.jpg", cols: 11, rows: 8,
+        enemies: &[
+            EnemySpawn { template: "yoma", origin: Axial { q: 6, r: 2 }, facing: 3 },
+            EnemySpawn { template: "yoma", origin: Axial { q: 8, r: 5 }, facing: 3 },
+            EnemySpawn { template: "yoma", origin: Axial { q: 7, r: 4 }, facing: 3 },
+        ],
+        player_origins: &[Axial { q: 2, r: 4 }, Axial { q: 1, r: 3 }, Axial { q: 1, r: 5 }],
+        karma: 6, rank: 0, recruit: &[], raki: false, flag: "doga-cleared",
     },
     EncounterDef {
         id: "paburo-nest", title: "Paburo · the nest",
