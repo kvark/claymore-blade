@@ -56,6 +56,7 @@ impl Renderer {
         let art = match game.scene.as_ref().map(|s| s.id) {
             Some(crate::dialog::SceneId::OpheliaIntro) => "art/battle-gonal.jpg",
             Some(crate::dialog::SceneId::TownDoga) => "art/tavern.jpg",
+            Some(crate::dialog::SceneId::TownDogaLate) => "art/battle-doga.jpg",
             Some(crate::dialog::SceneId::RecruitPaburo) => "art/battle-paburo.jpg",
             Some(crate::dialog::SceneId::RecruitPieta) => "art/battle-pieta.jpg",
             _ => "art/title.jpg",
