@@ -196,6 +196,9 @@ pub struct CombatState {
     pub log: Vec<CombatLog>,
     pub over: Option<bool>,
     pub briefing: String,
+    /// Off-board Raki (later hunts). On-board Raki is a real unit instead.
+    #[serde(default)]
+    pub support_raki: bool,
 }
 
 #[derive(Clone, Debug)]
