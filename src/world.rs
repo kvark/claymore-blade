@@ -99,10 +99,9 @@ pub fn apply_victory(world: &mut WorldState, encounter_id: &str) {
     let Some(enc) = catalog::encounter(encounter_id) else {
         return;
     };
-    if let Some(loc) = catalog::LOCATIONS
-        .iter()
-        .find(|l| l.encounter == Some(encounter_id))
-    {
+    if let Some(loc) = catalog::LOCATIONS.iter().find(|l| {
+        l.encounter == Some(encounter_id) || (encounter_id == "doga-nest" && l.id == "doga")
+    }) {
         world.locations.insert(
             loc.id.into(),
             LocState {
@@ -115,11 +114,10 @@ pub fn apply_victory(world: &mut WorldState, encounter_id: &str) {
     if encounter_id.contains("ripple") || encounter_id.contains("worm") {
         world.ledger.awakened += 1;
     } else {
-        world.ledger.demons += if encounter_id == "paburo-nest" { 3 } else { 2 };
+        world.ledger.demons += if encounter_id.contains("nest") { 3 } else { 2 };
     }
     world.karma += enc.karma;
     world.rank = (world.rank + enc.rank).max(1);
-    // Raki join and silver recruits are scene choices, not automatic.
     world.flags.insert(enc.flag.into(), true);
     if world.flags.get("doga-cleared") == Some(&true) {
         if let Some(st) = world.locations.get_mut("paburo") {
@@ -166,8 +164,51 @@ pub fn nearest_location(x: f32, y: f32, radius: f32) -> Option<&'static Location
     best
 }
 
+/// Hunt id for a pin. Dead beacons become nests (harder, no villagers).
+pub fn hunt_for(world: &WorldState, loc_id: &str) -> Option<&'static str> {
+    let loc = catalog::location(loc_id)?;
+    let dead = world
+        .locations
+        .get(loc_id)
+        .map(|s| s.status == WorldStatus::Dead)
+        .unwrap_or(false);
+    if dead {
+        match loc.id {
+            "doga" => Some("doga-nest"),
+            _ => loc.encounter,
+        }
+    } else {
+        loc.encounter
+    }
+}
+
 pub fn clock_label(hours: f32) -> String {
     let day = (hours / 24.0).floor() as i32 + 1;
     let h = (hours as i32) % 24;
     format!("Day {day} {h:02}:00")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn late_beacon_becomes_a_nest() {
+        let mut w = new_world();
+        if let Some(st) = w.locations.get_mut("doga") {
+            st.hours_left = 1.0;
+        }
+        tick_hours(&mut w, 2.0);
+        assert_eq!(w.locations["doga"].status, WorldStatus::Dead);
+        assert_eq!(hunt_for(&w, "doga"), Some("doga-nest"));
+    }
+
+    #[test]
+    fn nest_win_clears_doga() {
+        let mut w = new_world();
+        apply_victory(&mut w, "doga-nest");
+        assert_eq!(w.locations["doga"].status, WorldStatus::Cleared);
+        assert_eq!(w.flags.get("doga-cleared"), Some(&true));
+        assert_eq!(w.locations["paburo"].status, WorldStatus::Beacon);
+    }
 }
