@@ -269,8 +269,20 @@ impl Game {
             self.result_body = dialog::RESULT_WIN_BODY.into();
             self.fx.emit_win();
             audio::confirm();
+            let raki_fell = self
+                .combat
+                .as_ref()
+                .and_then(|c| c.units.iter().find(|u| u.template_id == "raki"))
+                .map(|u| u.dead)
+                .unwrap_or(false);
+            if raki_fell {
+                self.world.flags.insert("raki-dead".into(), true);
+            }
+            // Nest path already told the late story: the boy is gone.
             self.scene = match id {
-                "doga-yoma" if !self.world.raki => Some(SceneState::new(SceneId::RakiJoin)),
+                "doga-yoma" if !self.world.raki && !raki_fell => {
+                    Some(SceneState::new(SceneId::RakiJoin))
+                }
                 "paburo-nest"
                     if !self.world.party.iter().any(|p| p == "miria" || p == "helen") =>
                 {
