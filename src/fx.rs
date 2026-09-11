@@ -267,6 +267,19 @@ impl Fx {
         );
     }
 
+    /// On-screen prompt line (far-pin, rest, Esc confirm). Slow rise, ~2s.
+    pub fn emit_hint(&mut self, x: f32, y: f32, text: impl Into<String>) {
+        self.floaters.push(Floater {
+            x,
+            y,
+            vy: -0.025,
+            life: 2.2,
+            max: 2.2,
+            text: text.into(),
+            tint: [0.95, 0.88, 0.62, 1.0],
+        });
+    }
+
     fn spawn_p(
         &mut self,
         x: f32,

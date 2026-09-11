@@ -4,13 +4,11 @@ use super::*;
 use crate::audio;
 use crate::catalog::{self};
 use crate::combat::{
-    act, core_hex, create_battle, current_unit, legal_moves, legal_targets, run_ai, zone_for,
-    CombatState, PlayerAction, Side,
+    create_battle, current_unit, run_ai, Side,
 };
-use crate::dialog::{self, SceneId, SceneState};
+use crate::dialog::{SceneId, SceneState};
 use crate::hud;
-use crate::world::{self, apply_victory};
-use crate::hex::{hex_eq, Axial};
+use crate::world::{self};
 
 impl Game {
     pub fn click(&mut self, nx: f32, ny: f32, screen: [f32; 2]) {
@@ -71,6 +69,7 @@ impl Game {
             let d = world::dist01(self.world.party_x, self.world.party_y, loc.x, loc.y);
             if d > world::TOWN_ENTER_RADIUS {
                 audio::error();
+                self.fx.emit_hint(loc.x - 0.05, loc.y - 0.06, "WALK CLOSER");
                 return;
             }
             audio::confirm();
@@ -123,6 +122,8 @@ impl Game {
         } else if hud::town_rest().contains(nx, ny) {
             audio::play("cloth");
             world::tick_hours(&mut self.world, 8.0);
+            self.fx.emit_hint(0.40, 0.62, "RESTED 8H");
+            self.fx.flash = self.fx.flash.max(0.18);
             self.persist();
         } else if hud::town_leave().contains(nx, ny) {
             audio::play("close");
@@ -187,6 +188,10 @@ mod tests {
         assert_eq!(g.mode, Mode::World, "far click must not enter town");
         assert!(g.world.last_town.is_none());
         assert_eq!(g.world.party_x, before_x, "must not click-teleport");
+        assert!(
+            g.fx.floaters.iter().any(|f| f.text.contains("WALK CLOSER")),
+            "far pin should show a walk-closer hint"
+        );
     }
 
     #[test]

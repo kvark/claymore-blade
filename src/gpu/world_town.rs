@@ -10,10 +10,12 @@ impl Renderer {
             [0.0, 0.0, 1.0, 1.0],
             [0.92, 0.88, 0.82, 1.0],
         );
-        // Fog of war: dark ink over unexplored cells (row-run merged).
+        // Fog of war: deep ink on unexplored; softer ash rim at the vision edge.
         {
-            use crate::world::{is_explored, EXPLORED_H, EXPLORED_W};
-            let ink = [0.04, 0.03, 0.05, 0.92];
+            use crate::world::{is_explored, is_explored_rim, EXPLORED_H, EXPLORED_W};
+            let deep = [0.04, 0.03, 0.05, 0.92];
+            let rim = [0.12, 0.10, 0.11, 0.55];
+            let ash = [0.55, 0.48, 0.40, 0.28];
             for row in 0..EXPLORED_H {
                 let mut col = 0usize;
                 while col < EXPLORED_W {
@@ -21,15 +23,25 @@ impl Renderer {
                         col += 1;
                         continue;
                     }
+                    let rim_cell = is_explored_rim(&game.world, col, row);
                     let start = col;
-                    while col < EXPLORED_W && !is_explored(&game.world, col, row) {
+                    while col < EXPLORED_W
+                        && !is_explored(&game.world, col, row)
+                        && is_explored_rim(&game.world, col, row) == rim_cell
+                    {
                         col += 1;
                     }
                     let x0 = start as f32 / EXPLORED_W as f32;
                     let x1 = col as f32 / EXPLORED_W as f32;
                     let y0 = row as f32 / EXPLORED_H as f32;
                     let y1 = (row + 1) as f32 / EXPLORED_H as f32;
+                    let ink = if rim_cell { rim } else { deep };
                     self.rect(&mut rc, [x0, y0, x1 - x0, y1 - y0], ink);
+                    if rim_cell {
+                        // Thin ash hairline toward the revealed side.
+                        let h = (y1 - y0) * 0.35;
+                        self.rect(&mut rc, [x0, y0 + (y1 - y0 - h) * 0.5, x1 - x0, h], ash);
+                    }
                 }
             }
         }

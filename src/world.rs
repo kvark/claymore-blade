@@ -123,6 +123,24 @@ pub fn is_explored(world: &WorldState, col: usize, row: usize) -> bool {
         .unwrap_or(false)
 }
 
+/// Unexplored cell that touches at least one explored neighbor (4-connected).
+pub fn is_explored_rim(world: &WorldState, col: usize, row: usize) -> bool {
+    if is_explored(world, col, row) {
+        return false;
+    }
+    for (dc, dr) in [(-1_i32, 0), (1, 0), (0, -1), (0, 1)] {
+        let c = col as i32 + dc;
+        let r = row as i32 + dr;
+        if c < 0 || r < 0 || c >= EXPLORED_W as i32 || r >= EXPLORED_H as i32 {
+            continue;
+        }
+        if is_explored(world, c as usize, r as usize) {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn map_explored_at(world: &WorldState, x: f32, y: f32) -> bool {
     let (c, r) = cell_of(x, y);
     is_explored(world, c, r)

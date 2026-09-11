@@ -1,8 +1,8 @@
 //! Hits, zones, and the act() entry point.
 
 use super::*;
-use crate::catalog::{self, derived};
-use crate::hex::{facing_toward, hex_distance, hex_eq, hex_neighbors, place_footprint, Axial};
+use crate::catalog::{self};
+use crate::hex::{facing_toward, hex_distance, hex_eq, hex_neighbors, Axial};
 use crate::rng::Rng;
 
 pub(crate) fn resolve_hit(

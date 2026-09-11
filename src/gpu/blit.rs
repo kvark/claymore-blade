@@ -46,6 +46,18 @@ impl Renderer {
         label: &str,
         hot: bool,
     ) {
+        self.kenney_btn_ex(rc, kind, r, label, hot, 0.022);
+    }
+
+    pub(super) fn kenney_btn_ex(
+        &self,
+        rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>,
+        kind: &str,
+        r: hud::Rect,
+        label: &str,
+        hot: bool,
+        glyph_h: f32,
+    ) {
         let tex = if hot {
             "kenney/ui/button-line.png"
         } else {
@@ -63,7 +75,6 @@ impl Renderer {
             steel[3] = 0.22;
             self.rect(rc, r.pos(), steel);
         }
-        let glyph_h = 0.022;
         let glyph_w = glyph_h * 0.7;
         let n = label.chars().filter(|c| *c != '\n').count() as f32;
         let text_w = if n > 0.0 {
@@ -110,6 +121,7 @@ impl Renderer {
         self.blit_uv(rc, view, self.pixel, pos, [0.0, 0.0, 1.0, 1.0], tint);
     }
 
+    #[allow(dead_code)]
     pub(super) fn blit_s(
         &self,
         rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>,

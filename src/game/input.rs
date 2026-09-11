@@ -4,19 +4,16 @@ use super::*;
 use crate::audio;
 use crate::catalog::{self};
 use crate::combat::{
-    act, core_hex, create_battle, current_unit, legal_moves, legal_targets, run_ai, zone_for,
-    CombatState, PlayerAction, Side,
+    current_unit, legal_moves, legal_targets, zone_for, PlayerAction, Side,
 };
-use crate::dialog::{self, SceneId, SceneState};
+use crate::hex::Axial;
 use crate::hud;
-use crate::world::{self, apply_victory};
-use crate::hex::{hex_eq, Axial};
 
 
 impl Game {
     pub fn hover_hex(&mut self, nx: f32, ny: f32, screen: [f32; 2]) {
         self.ui.screen = screen;
-        if self.mode != Mode::Combat || ny > 0.88 {
+        if self.mode != Mode::Combat || ny > hud::combat_bar().wait.y {
             self.ui.hover = None;
             return;
         }
@@ -86,23 +83,46 @@ impl Game {
             match code {
                 winit::keyboard::KeyCode::Escape => {
                     audio::play("close");
-                    if self.mode == Mode::Combat {
-                        self.mode = Mode::World;
-                        self.combat = None;
-                    } else if self.mode == Mode::Scene {
-                        // Decline / skip choice scenes; Ophelia still proceeds to fight.
-                        if let Some(scene) = self.scene.as_ref() {
-                            if scene.at_end() {
-                                self.resolve_scene(false);
-                            } else if let Some(s) = self.scene.as_mut() {
-                                // jump to last line so player can still choose
-                                while !s.at_end() {
-                                    s.advance();
-                                }
+                    match self.mode {
+                        Mode::Combat => {
+                            if self.esc_arm > 0.0 {
+                                self.mode = Mode::World;
+                                self.combat = None;
+                                self.esc_arm = 0.0;
+                                self.ui.selected_skill = None;
+                                audio::music_island();
+                                self.persist();
+                            } else {
+                                self.esc_arm = 2.0;
+                                self.fx.emit_hint(0.38, 0.78, "ESC AGAIN TO FLEE");
                             }
                         }
-                    } else if self.mode != Mode::Title {
-                        self.mode = Mode::Title;
+                        Mode::Scene => {
+                            // Decline / skip choice scenes; Ophelia still proceeds to fight.
+                            if let Some(scene) = self.scene.as_ref() {
+                                if scene.at_end() {
+                                    self.resolve_scene(false);
+                                } else if let Some(s) = self.scene.as_mut() {
+                                    while !s.at_end() {
+                                        s.advance();
+                                    }
+                                }
+                            }
+                            self.persist();
+                        }
+                        Mode::Town | Mode::Codex | Mode::Result => {
+                            self.mode = Mode::World;
+                            self.esc_arm = 0.0;
+                            audio::music_island();
+                            self.persist();
+                        }
+                        Mode::World | Mode::Intro => {
+                            // Persist first so Continue restores the island, not a stale fight.
+                            self.persist();
+                            self.mode = Mode::Title;
+                            self.esc_arm = 0.0;
+                        }
+                        Mode::Title => {}
                     }
                 }
                 winit::keyboard::KeyCode::Digit1 => {

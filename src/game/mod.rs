@@ -7,16 +7,14 @@ mod save;
 mod scene;
 
 use crate::audio;
-use crate::catalog::{self};
 use crate::combat::{
-    act, core_hex, create_battle, current_unit, legal_moves, legal_targets, run_ai, zone_for,
-    CombatState, PlayerAction, Side,
+    core_hex,
+    CombatState,
 };
-use crate::dialog::{self, SceneId, SceneState};
+use crate::dialog::{self, SceneState};
 use crate::fx::Fx;
-use crate::hex::{hex_eq, Axial};
-use crate::hud;
-use crate::world::{self, apply_victory, new_world, WorldState};
+use crate::hex::Axial;
+use crate::world::{self, new_world, WorldState};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -96,6 +94,8 @@ pub struct Game {
     pub walking: bool,
     pub scene: Option<SceneState>,
     pub pending_encounter: Option<String>,
+    /// Seconds left to confirm Combat Esc flee (0 = not armed).
+    pub esc_arm: f32,
 }
 
 
@@ -126,6 +126,7 @@ impl Game {
             walking: false,
             scene: None,
             pending_encounter: None,
+            esc_arm: 0.0,
         }
     }
 
@@ -184,6 +185,9 @@ impl Game {
     pub fn tick(&mut self, dt: f32) {
         let dt = dt.clamp(0.0, 0.08);
         self.fx.tick(dt);
+        if self.esc_arm > 0.0 {
+            self.esc_arm = (self.esc_arm - dt).max(0.0);
+        }
         match self.mode {
             Mode::Title | Mode::Intro => {
                 if self.fx.time % 0.45 < dt {
@@ -279,6 +283,7 @@ impl Game {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalog;
 
     #[test]
     fn wasd_signs_on_the_map() {
@@ -312,5 +317,49 @@ mod tests {
         g.keys = vec![winit::keyboard::KeyCode::KeyD];
         g.tick(0.05);
         assert!(world::map_explored_at(&g.world, g.world.party_x, g.world.party_y));
+    }
+
+    #[test]
+    fn combat_esc_needs_confirm_then_persists_cleared() {
+        let mut g = Game::new();
+        g.world = world::new_world();
+        let enc = catalog::encounter("doga-yoma").expect("doga-yoma");
+        g.begin_battle(enc);
+        assert_eq!(g.mode, Mode::Combat);
+        assert!(g.combat.is_some());
+        g.key(winit::keyboard::KeyCode::Escape, true);
+        g.key(winit::keyboard::KeyCode::Escape, false);
+        assert_eq!(g.mode, Mode::Combat, "first Esc only arms flee");
+        assert!(g.esc_arm > 0.0);
+        assert!(g.combat.is_some());
+        g.key(winit::keyboard::KeyCode::Escape, true);
+        assert_eq!(g.mode, Mode::World);
+        assert!(g.combat.is_none());
+        let p = save::load_save().expect("persist after flee");
+        assert!(p.combat.is_none(), "save must not restore abandoned fight");
+        assert_ne!(p.mode, Mode::Combat);
+    }
+
+    #[test]
+    fn world_esc_persists_before_title() {
+        let mut g = Game::new();
+        g.mode = Mode::World;
+        g.world = world::new_world();
+        g.world.party_x = 0.71;
+        g.world.party_y = 0.33;
+        g.key(winit::keyboard::KeyCode::Escape, true);
+        assert_eq!(g.mode, Mode::Title);
+        let p = save::load_save().expect("persist on world Esc");
+        assert!((p.world.party_x - 0.71).abs() < 1e-4);
+        assert!((p.world.party_y - 0.33).abs() < 1e-4);
+    }
+
+    #[test]
+    fn town_esc_returns_to_world_not_title() {
+        let mut g = Game::new();
+        g.mode = Mode::Town;
+        g.world = world::new_world();
+        g.key(winit::keyboard::KeyCode::Escape, true);
+        assert_eq!(g.mode, Mode::World);
     }
 }
