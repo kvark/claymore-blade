@@ -67,9 +67,13 @@ impl Game {
                 audio::error();
                 return;
             }
+            // Fallout-style: enter only when the party is next to the pin.
+            let d = world::dist01(self.world.party_x, self.world.party_y, loc.x, loc.y);
+            if d > world::TOWN_ENTER_RADIUS {
+                audio::error();
+                return;
+            }
             audio::confirm();
-            self.world.party_x = loc.x;
-            self.world.party_y = loc.y;
             self.world.last_town = Some(loc.id.into());
             if self.world.flags.get("raki-refused") == Some(&true) && !self.world.raki {
                 self.world.raki = true;
@@ -161,5 +165,42 @@ impl Game {
         };
         self.fx = crate::fx::Fx::default();
         self.persist();
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pin_click_rejects_far_party() {
+        let mut g = Game::new();
+        g.mode = Mode::World;
+        g.world = world::new_world();
+        g.world.party_x = 0.80;
+        g.world.party_y = 0.20;
+        g.world.last_town = None;
+        let doga = catalog::location("doga").unwrap();
+        let before_x = g.world.party_x;
+        g.click(doga.x, doga.y, [1280.0, 800.0]);
+        assert_eq!(g.mode, Mode::World, "far click must not enter town");
+        assert!(g.world.last_town.is_none());
+        assert_eq!(g.world.party_x, before_x, "must not click-teleport");
+    }
+
+    #[test]
+    fn pin_click_enters_when_adjacent() {
+        let mut g = Game::new();
+        g.mode = Mode::World;
+        g.world = world::new_world();
+        let doga = catalog::location("doga").unwrap();
+        g.world.party_x = doga.x;
+        g.world.party_y = doga.y;
+        // Mark talked so we go to Town, not the intro Scene.
+        g.world.flags.insert("doga-talked".into(), true);
+        g.click(doga.x, doga.y, [1280.0, 800.0]);
+        assert_eq!(g.mode, Mode::Town);
+        assert_eq!(g.world.last_town.as_deref(), Some("doga"));
     }
 }
