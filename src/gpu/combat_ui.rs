@@ -99,30 +99,32 @@ impl Renderer {
                 );
             }
         }
+        let bar = hud::combat_bar();
         self.blit_px(
             &mut rc,
             self.tex("kenney/ui/panel.png"),
-            [0.0, 0.85, 1.0, 0.15],
+            [0.0, bar.wait.y - 0.03, 1.0, 1.0 - (bar.wait.y - 0.03)],
             [0.32, 0.26, 0.20, 0.92],
         );
         if let Some(u) = current_unit(combat) {
+            let py = bar.wait.y - 0.018;
             self.blit(
                 &mut rc,
                 self.tex(&u.portrait),
-                [0.012, 0.862, 0.08, 0.128],
+                [0.012, py, 0.08, 0.118],
                 [1.0; 4],
             );
             self.text(
                 &mut rc,
                 &format!("{}  AP {}", u.name, u.ap),
                 0.10,
-                0.862,
+                py,
                 0.012,
             );
             self.bar(
                 &mut rc,
                 0.10,
-                0.888,
+                py + 0.026,
                 0.22,
                 0.016,
                 u.hp as f32 / u.max_hp.max(1) as f32,
@@ -131,58 +133,73 @@ impl Renderer {
             self.bar(
                 &mut rc,
                 0.10,
-                0.908,
+                py + 0.046,
                 0.22,
                 0.012,
                 u.trans as f32 / 100.0,
                 [0.7, 0.22, 0.26, 1.0],
             );
         }
-        let bar = hud::combat_bar();
         let sel = game.ui.selected_skill.as_deref();
-        self.kenney_btn(&mut rc, "kenney/ui/button-grey.png", bar.wait, "WAIT", false);
-        self.kenney_btn(&mut rc, "kenney/ui/button.png", bar.raise, "RAISE", false);
-        self.kenney_btn(
+        // Larger ash glyphs on the bar only — inactive WAIT/RAISE were weak tan-on-tan.
+        self.kenney_btn_ex(&mut rc, "kenney/ui/button-grey.png", bar.wait, "WAIT", false, 0.026);
+        self.kenney_btn_ex(&mut rc, "kenney/ui/button.png", bar.raise, "RAISE", false, 0.026);
+        self.kenney_btn_ex(
             &mut rc,
             "kenney/ui/button-brown.png",
             bar.guard,
             "GUARD",
             sel == Some("guard"),
+            0.026,
         );
-        self.kenney_btn(
+        self.kenney_btn_ex(
             &mut rc,
             "kenney/ui/button.png",
             bar.cut,
             "CUT",
             sel == Some("cut"),
+            0.026,
         );
         let slot_label = current_unit(combat)
             .and_then(|u| u.skills.get(4))
             .map(|s| s.to_ascii_uppercase())
             .unwrap_or_else(|| "—".into());
-        self.kenney_btn(
+        self.kenney_btn_ex(
             &mut rc,
             "kenney/ui/button-grey.png",
             bar.slot,
             &slot_label,
             false,
+            0.026,
         );
-        self.kenney_btn(
+        self.kenney_btn_ex(
             &mut rc,
             "kenney/ui/button-red.png",
             bar.forfeit,
             "FALL",
             false,
+            0.026,
         );
-        self.prompt(&mut rc, "kenney/prompt/space.png", bar.wait.x + 0.03, 0.868, 0.028);
-        self.prompt(&mut rc, "kenney/prompt/1.png", bar.cut.x + 0.035, 0.868, 0.024);
-        self.prompt(&mut rc, "kenney/prompt/2.png", bar.guard.x + 0.04, 0.868, 0.024);
+        let prompt_y = bar.wait.y - 0.028;
+        self.prompt(&mut rc, "kenney/prompt/space.png", bar.wait.x + 0.03, prompt_y, 0.028);
+        self.prompt(&mut rc, "kenney/prompt/1.png", bar.cut.x + 0.035, prompt_y, 0.024);
+        self.prompt(&mut rc, "kenney/prompt/2.png", bar.guard.x + 0.04, prompt_y, 0.024);
         if let Some(line) = combat.log.first() {
-            self.text(&mut rc, &line.text, 0.58, 0.862, 0.011);
+            self.text(&mut rc, &line.text, 0.58, bar.wait.y - 0.018, 0.011);
         }
         self.text(&mut rc, combat.title.as_str(), 0.02, 0.02, 0.014);
         self.text(&mut rc, "Q / E  ROTATE", 0.72, 0.02, 0.011);
         self.prompt(&mut rc, "kenney/prompt/esc.png", 0.92, 0.02, 0.04);
+        if game.esc_arm > 0.0 {
+            self.text_tint(
+                &mut rc,
+                "ESC AGAIN TO FLEE",
+                0.34,
+                bar.wait.y - 0.05,
+                0.016,
+                [0.95, 0.82, 0.45, 1.0],
+            );
+        }
         self.draw_fx(&mut rc, game);
     }
 }

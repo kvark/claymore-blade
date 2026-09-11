@@ -77,16 +77,16 @@ pub struct CombatBar {
     pub forfeit: Rect,
 }
 
-/// Combat action bar. Raised slightly and taller so it clears phone home
-/// indicators and stays finger-sized on ~375 px screens.
+/// Combat action bar. Lifted off the desktop dock / phone home indicator
+/// (y ~0.865) while keeping six finger-sized chips.
 pub fn combat_bar() -> CombatBar {
     CombatBar {
-        wait: Rect::new(0.04, 0.895, 0.13, 0.085),
-        raise: Rect::new(0.18, 0.895, 0.13, 0.085),
-        guard: Rect::new(0.32, 0.895, 0.14, 0.085),
-        cut: Rect::new(0.47, 0.895, 0.13, 0.085),
-        slot: Rect::new(0.61, 0.895, 0.15, 0.085),
-        forfeit: Rect::new(0.82, 0.895, 0.14, 0.085),
+        wait: Rect::new(0.04, 0.865, 0.13, 0.08),
+        raise: Rect::new(0.18, 0.865, 0.13, 0.08),
+        guard: Rect::new(0.32, 0.865, 0.14, 0.08),
+        cut: Rect::new(0.47, 0.865, 0.13, 0.08),
+        slot: Rect::new(0.61, 0.865, 0.15, 0.08),
+        forfeit: Rect::new(0.82, 0.865, 0.14, 0.08),
     }
 }
 
@@ -104,7 +104,7 @@ mod tests {
     #[test]
     fn combat_wait_sits_on_the_bar() {
         let b = combat_bar();
-        assert!(b.wait.contains(0.08, 0.93));
-        assert!(!b.forfeit.contains(0.08, 0.93));
+        assert!(b.wait.contains(0.08, 0.90));
+        assert!(!b.forfeit.contains(0.08, 0.90));
     }
 }

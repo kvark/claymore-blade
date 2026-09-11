@@ -3,10 +3,9 @@
 #![allow(irrefutable_let_patterns)]
 
 use crate::catalog::{ENCOUNTERS, ENEMIES, LOCATIONS, WARRIORS};
-use crate::combat::{core_hex, current_unit, live_cells, CombatState, Side, Terrain};
+use crate::combat::{core_hex, current_unit, CombatState, Side, Terrain};
 use crate::font;
 use crate::game::{Game, Mode};
-use crate::hex::axial_to_world;
 use crate::hud;
 use crate::io::{load_rgba, shader_source};
 use crate::iso::{
@@ -21,7 +20,7 @@ use std::collections::HashMap;
 
 const ASH: [f32; 4] = [0.72, 0.64, 0.52, 1.0];
 /// Dark metal plate tint for Kenney UI buttons (ink #0b0a09 family).
-const INK_PLATE: [f32; 4] = [0.14, 0.12, 0.11, 1.0];
+const INK_PLATE: [f32; 4] = [0.08, 0.06, 0.05, 1.0];
 /// Ash type #ebe4d6 for button labels.
 const ASH_TYPE: [f32; 4] = [0.922, 0.894, 0.839, 1.0];
 /// Steel #c8ccd4 for hot/selected overlays (never gold).

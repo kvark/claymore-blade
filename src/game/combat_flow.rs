@@ -2,22 +2,19 @@
 
 use super::*;
 use crate::audio;
-use crate::catalog::{self};
 use crate::combat::{
-    act, core_hex, create_battle, current_unit, legal_moves, legal_targets, run_ai, zone_for,
-    CombatState, PlayerAction, Side,
+    act, core_hex, current_unit, legal_moves, legal_targets, run_ai, PlayerAction, Side,
 };
 use crate::dialog::{self, SceneId, SceneState};
 use crate::hud;
-use crate::world::{self, apply_victory};
+use crate::world::apply_victory;
 use crate::hex::{hex_eq, Axial};
 
-use crate::fx::Fx;
 
 impl Game {
     pub(super) fn click_combat(&mut self, nx: f32, ny: f32, screen: [f32; 2]) {
         let bar = hud::combat_bar();
-        if ny > 0.88 {
+        if ny > bar.wait.y {
             if bar.wait.contains(nx, ny) {
                 audio::click();
                 self.combat_act(PlayerAction::Wait);

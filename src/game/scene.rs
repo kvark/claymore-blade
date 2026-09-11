@@ -3,7 +3,7 @@
 use super::*;
 use crate::audio;
 use crate::catalog::{self};
-use crate::dialog::{self, SceneId, SceneState};
+use crate::dialog::SceneId;
 use crate::hud;
 
 impl Game {

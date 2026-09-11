@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::catalog::{self};
-use crate::hex::{hex_distance, hex_eq, Axial};
+use crate::hex::{hex_distance, hex_eq};
 
 pub(crate) fn pick_ai_skill(_state: &CombatState, u: &Unit) -> Option<&'static SkillDef> {
     let mut usable: Vec<_> = u
