@@ -22,6 +22,25 @@ fn surface_config(size: winit::dpi::PhysicalSize<u32>) -> gpu::SurfaceConfig {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+fn sync_web_canvas_bitmap(window: &Window, size: winit::dpi::PhysicalSize<u32>) {
+    use winit::platform::web::WindowExtWebSys as _;
+    let Some(canvas) = window.canvas() else {
+        return;
+    };
+    let w = size.width.max(1);
+    let h = size.height.max(1);
+    // Blade's WebGL present blits into the canvas drawing buffer. CSS
+    // width/height only stretch the element — without updating these
+    // attributes the buffer stays at the HTML default 300×150.
+    if canvas.width() != w {
+        canvas.set_width(w);
+    }
+    if canvas.height() != h {
+        canvas.set_height(h);
+    }
+}
+
 struct App {
     game: Game,
     renderer: Option<Renderer>,
@@ -71,8 +90,17 @@ impl ApplicationHandler for App {
             web_sys::window()
                 .and_then(|w| w.document())
                 .and_then(|d| d.body())
-                .and_then(|b| b.append_child(&web_sys::Element::from(canvas)).ok())
+                .and_then(|b| b.append_child(&web_sys::Element::from(canvas.clone())).ok())
                 .expect("append canvas");
+            // winit's with_inner_size is a no-op until the canvas is in the
+            // document; after append, size the drawing buffer to the CSS box.
+            let dpr = web_sys::window()
+                .map(|w| w.device_pixel_ratio())
+                .unwrap_or(1.0);
+            let w = (f64::from(canvas.client_width()) * dpr).round().max(1.0) as u32;
+            let h = (f64::from(canvas.client_height()) * dpr).round().max(1.0) as u32;
+            canvas.set_width(w);
+            canvas.set_height(h);
         }
 
         let context = unsafe {
@@ -86,6 +114,18 @@ impl ApplicationHandler for App {
         .expect("blade gpu context");
         log::info!("{:?}", context.device_information());
 
+        // On web, winit's tracked inner_size stays 0 until ResizeObserver
+        // runs; prefer the canvas bitmap we just synchronized.
+        #[cfg(target_arch = "wasm32")]
+        let size = {
+            use winit::platform::web::WindowExtWebSys as _;
+            window
+                .canvas()
+                .map(|c| winit::dpi::PhysicalSize::new(c.width(), c.height()))
+                .filter(|s| s.width > 0 && s.height > 0)
+                .unwrap_or_else(|| window.inner_size())
+        };
+        #[cfg(not(target_arch = "wasm32"))]
         let size = window.inner_size();
         let surface = context
             .create_surface_configured(&window, surface_config(size))
@@ -119,6 +159,10 @@ impl ApplicationHandler for App {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
+                #[cfg(target_arch = "wasm32")]
+                if let Some(window) = &self.window {
+                    sync_web_canvas_bitmap(window, size);
+                }
                 if let (Some(context), Some(surface), Some(renderer)) =
                     (&self.context, self.surface.as_mut(), self.renderer.as_mut())
                 {
