@@ -122,7 +122,11 @@ impl Game {
                             self.mode = Mode::Title;
                             self.esc_arm = 0.0;
                         }
-                        Mode::Title => {}
+                        Mode::Title => {
+                            // First Esc arms quit; app.rs exits on the second (native).
+                            self.esc_arm = 2.0;
+                            self.fx.emit_hint(0.38, 0.78, "ESC AGAIN TO QUIT");
+                        }
                     }
                 }
                 winit::keyboard::KeyCode::Digit1 => {

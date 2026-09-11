@@ -29,9 +29,26 @@ impl Renderer {
         for f in &game.fx.floaters {
             let a = (f.life / f.max).clamp(0.0, 1.0);
             let pop = 1.0 + (1.0 - a) * 0.25;
+            let glyph_h = 0.016 * pop;
             let mut tint = f.tint;
             tint[3] *= a;
-            self.text_tint(rc, &f.text, f.x, f.y, 0.016 * pop, tint);
+            if f.plate {
+                let glyph_w = glyph_h * 0.7;
+                let n = f.text.chars().filter(|c| *c != '\n').count() as f32;
+                let text_w = if n > 0.0 {
+                    glyph_w * ((n - 1.0) * 0.85 + 1.0)
+                } else {
+                    0.0
+                };
+                let pad_x = 0.010;
+                let pad_y = 0.006;
+                self.rect(
+                    rc,
+                    [f.x - pad_x, f.y - pad_y, text_w + pad_x * 2.0, glyph_h + pad_y * 2.0],
+                    [0.05, 0.04, 0.03, 0.78 * a],
+                );
+            }
+            self.text_tint(rc, &f.text, f.x, f.y, glyph_h, tint);
         }
         if game.fx.flash > 0.02 {
             self.rect(rc, [0.0, 0.0, 1.0, 1.0], [0.92, 0.82, 0.72, game.fx.flash * 0.4]);
