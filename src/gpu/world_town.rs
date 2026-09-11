@@ -10,7 +10,34 @@ impl Renderer {
             [0.0, 0.0, 1.0, 1.0],
             [0.92, 0.88, 0.82, 1.0],
         );
+        // Fog of war: dark ink over unexplored cells (row-run merged).
+        {
+            use crate::world::{is_explored, EXPLORED_H, EXPLORED_W};
+            let ink = [0.04, 0.03, 0.05, 0.92];
+            for row in 0..EXPLORED_H {
+                let mut col = 0usize;
+                while col < EXPLORED_W {
+                    if is_explored(&game.world, col, row) {
+                        col += 1;
+                        continue;
+                    }
+                    let start = col;
+                    while col < EXPLORED_W && !is_explored(&game.world, col, row) {
+                        col += 1;
+                    }
+                    let x0 = start as f32 / EXPLORED_W as f32;
+                    let x1 = col as f32 / EXPLORED_W as f32;
+                    let y0 = row as f32 / EXPLORED_H as f32;
+                    let y1 = (row + 1) as f32 / EXPLORED_H as f32;
+                    self.rect(&mut rc, [x0, y0, x1 - x0, y1 - y0], ink);
+                }
+            }
+        }
         for loc in crate::catalog::LOCATIONS {
+            // Hide pins under the shroud until their cell is explored.
+            if !crate::world::map_explored_at(&game.world, loc.x, loc.y) {
+                continue;
+            }
             let st = game.world.locations.get(loc.id).map(|s| s.status);
             let (tint, prop) = match st {
                 Some(crate::world::WorldStatus::Beacon) => (
@@ -47,40 +74,40 @@ impl Renderer {
                 self.text(&mut rc, "DARK", loc.x - 0.018, loc.y + ph * 0.18, 0.011);
             }
         }
-        // Clare: face the walk direction, procedural step bob + lean.
+        // Clare: face walk direction; bob/lean share step_acc cadence with footfalls.
         let facing = if game.facing >= 0.0 { 1.0 } else { -1.0 };
-        let walk_t = if game.walking {
-            game.fx.time * 10.5
+        let step = if game.walking {
+            (game.step_acc / crate::game::WORLD_STEP_PERIOD * std::f32::consts::TAU).sin()
         } else {
-            game.fx.time * 2.2
+            (game.fx.time * 2.2).sin()
         };
-        let step = walk_t.sin();
         let bob = if game.walking {
-            step.abs() * 0.007 + step * 0.002
+            step.abs() * 0.014 + step * 0.003
         } else {
             (game.fx.time * 3.4).sin() * 0.004
         };
-        let lean = if game.walking { facing * 0.003 } else { 0.0 };
+        let lean_x = if game.walking { facing * 0.007 } else { 0.0 };
+        let lean_y = if game.walking { game.facing_y * 0.006 } else { 0.0 };
         let squash = if game.walking {
-            1.0 + step.abs() * 0.06
+            1.0 + step.abs() * 0.09
         } else {
             1.0
         };
         let stretch = if game.walking {
-            1.0 - step.abs() * 0.05
+            1.0 - step.abs() * 0.07
         } else {
             1.0
         };
         let base_w = 0.032 * squash;
         let base_h = 0.058 * stretch;
-        let px = game.world.party_x + lean;
-        let py = game.world.party_y;
+        let px = game.world.party_x + lean_x;
+        let py = game.world.party_y + lean_y;
         self.blit_px(
             &mut rc,
             self.tex("kenney/prop/banner.png"),
             [
                 px - 0.012,
-                py - 0.038 + bob * 0.5,
+                py - 0.038 + bob * 0.5 - lean_y * 0.4,
                 0.024,
                 0.046,
             ],

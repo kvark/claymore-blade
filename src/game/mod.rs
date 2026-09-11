@@ -68,6 +68,14 @@ pub struct Persist {
     pub result_win: Option<bool>,
 }
 
+
+/// Island walk speed in normalized map units per second (~8–15s Doga→Pieta).
+pub const WORLD_WALK_SPEED: f32 = 0.055;
+/// World-hour advance per real second while walking.
+pub const WORLD_HOUR_RATE: f32 = 1.0;
+/// Footfall / bob cycle length; dust + audio share this cadence.
+pub const WORLD_STEP_PERIOD: f32 = 0.32;
+
 pub struct Game {
     pub mode: Mode,
     pub world: WorldState,
@@ -82,6 +90,8 @@ pub struct Game {
     pub step_acc: f32,
     /// 1 = facing right, -1 = facing left (world map Clare).
     pub facing: f32,
+    /// Vertical facing sense: -1 north / up, +1 south / down (banner lean).
+    pub facing_y: f32,
     /// True while Clare is moving on the island.
     pub walking: bool,
     pub scene: Option<SceneState>,
@@ -93,11 +103,12 @@ impl Game {
     pub fn new() -> Self {
         let save = save::load_save();
         let has_save = save.is_some();
-        let (world, combat, result_win) = if let Some(p) = save {
+        let (mut world, combat, result_win) = if let Some(p) = save {
             (p.world, p.combat, p.result_win)
         } else {
             (new_world(), None, None)
         };
+        world::ensure_explored(&mut world);
         Self {
             mode: Mode::Title,
             world,
@@ -111,6 +122,7 @@ impl Game {
             fx: Fx::default(),
             step_acc: 0.0,
             facing: 1.0,
+            facing_y: 0.0,
             walking: false,
             scene: None,
             pending_encounter: None,
@@ -145,6 +157,7 @@ impl Game {
         };
         self.fx = Fx::default();
         self.facing = 1.0;
+        self.facing_y = 0.0;
         self.walking = false;
         self.step_acc = 0.0;
         audio::confirm();
@@ -154,6 +167,7 @@ impl Game {
     pub fn continue_hunt(&mut self) {
         if let Some(p) = save::load_save() {
             self.world = p.world;
+            world::ensure_explored(&mut self.world);
             self.combat = p.combat;
             self.result_win = p.result_win;
             self.mode = if self.combat.is_some() {
@@ -204,6 +218,9 @@ impl Game {
     }
 
     pub(super) fn tick_world(&mut self, dt: f32) {
+        // FoW: stamp vision every frame on the island (even while idle).
+        let (px, py) = (self.world.party_x, self.world.party_y);
+        world::stamp_explored(&mut self.world, px, py, world::VISION_RADIUS);
         if self.fx.hitstop > 0.0 {
             self.walking = false;
             return;
@@ -226,18 +243,23 @@ impl Game {
         let len = (dx * dx + dy * dy).sqrt();
         dx /= len;
         dy /= len;
-        // Face the direction of travel (prefer horizontal when both axes pressed).
+        // Facing follows movement: L/R flip + N/S lean sense.
         if dx.abs() > 0.01 {
             self.facing = if dx > 0.0 { 1.0 } else { -1.0 };
         }
+        if dy.abs() > 0.01 {
+            self.facing_y = if dy > 0.0 { 1.0 } else { -1.0 };
+        } else {
+            self.facing_y = 0.0;
+        }
         self.walking = true;
-        let speed = 0.18;
+        let speed = WORLD_WALK_SPEED;
         self.world.party_x = (self.world.party_x + dx * speed * dt).clamp(0.08, 0.92);
         self.world.party_y = (self.world.party_y + dy * speed * dt).clamp(0.10, 0.88);
-        world::tick_hours(&mut self.world, dt * 2.4);
+        world::tick_hours(&mut self.world, dt * WORLD_HOUR_RATE);
         self.step_acc += dt;
-        if self.step_acc > 0.32 {
-            self.step_acc = 0.0;
+        if self.step_acc >= WORLD_STEP_PERIOD {
+            self.step_acc -= WORLD_STEP_PERIOD;
             self.fx.emit_step(self.world.party_x, self.world.party_y);
             audio::play("step");
         }
@@ -265,15 +287,30 @@ mod tests {
         g.world.party_x = 0.5;
         g.world.party_y = 0.5;
         g.keys = vec![winit::keyboard::KeyCode::KeyA];
-        g.tick(0.2);
+        // tick() clamps dt to 0.08 — assert against that.
+        g.tick(0.08);
         assert!(g.world.party_x < 0.5, "A walks left on the island");
+        assert!((0.5 - g.world.party_x - WORLD_WALK_SPEED * 0.08).abs() < 1e-4);
         g.keys = vec![winit::keyboard::KeyCode::KeyD];
         let x = g.world.party_x;
-        g.tick(0.2);
+        g.tick(0.08);
         assert!(g.world.party_x > x, "D walks right on the island");
         g.keys = vec![winit::keyboard::KeyCode::KeyW];
         let y = g.world.party_y;
-        g.tick(0.2);
+        g.tick(0.08);
         assert!(g.world.party_y < y, "W walks up the painted map");
+        assert_eq!(g.facing_y, -1.0, "north updates vertical facing");
+    }
+
+    #[test]
+    fn walking_stamps_explored_cells() {
+        let mut g = Game::new();
+        g.mode = Mode::World;
+        g.world.explored = world::empty_explored();
+        g.world.party_x = 0.70;
+        g.world.party_y = 0.30;
+        g.keys = vec![winit::keyboard::KeyCode::KeyD];
+        g.tick(0.05);
+        assert!(world::map_explored_at(&g.world, g.world.party_x, g.world.party_y));
     }
 }

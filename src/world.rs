@@ -24,6 +24,14 @@ pub struct Ledger {
     pub missions: i32,
 }
 
+/// Coarse fog-of-war grid (map space 0..1).
+pub const EXPLORED_W: usize = 64;
+pub const EXPLORED_H: usize = 48;
+/// Vision radius stamped around the party while on the island.
+pub const VISION_RADIUS: f32 = 0.07;
+/// Must be this close (normalized map space) to enter a pin.
+pub const TOWN_ENTER_RADIUS: f32 = 0.05;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WorldState {
     pub hours: f32,
@@ -37,6 +45,9 @@ pub struct WorldState {
     pub locations: HashMap<String, LocState>,
     pub flags: HashMap<String, bool>,
     pub last_town: Option<String>,
+    /// Bit rows: `explored[row] & (1 << col)` means the cell is revealed.
+    #[serde(default = "empty_explored")]
+    pub explored: Vec<u64>,
 }
 
 pub fn new_world() -> WorldState {
@@ -55,7 +66,7 @@ pub fn new_world() -> WorldState {
             },
         );
     }
-    WorldState {
+    let mut world = WorldState {
         hours: 6.0,
         party_x: 0.26,
         party_y: 0.56,
@@ -71,6 +82,75 @@ pub fn new_world() -> WorldState {
         locations,
         flags: HashMap::new(),
         last_town: None,
+        explored: empty_explored(),
+    };
+    // Spawn + Doga start revealed so the first pin is visible.
+    let (px, py) = (world.party_x, world.party_y);
+    stamp_explored(&mut world, px, py, VISION_RADIUS + 0.01);
+    if let Some(doga) = catalog::location("doga") {
+        stamp_explored(&mut world, doga.x, doga.y, VISION_RADIUS + 0.01);
+    }
+    world
+}
+
+
+pub fn empty_explored() -> Vec<u64> {
+    vec![0u64; EXPLORED_H]
+}
+
+pub fn ensure_explored(world: &mut WorldState) {
+    if world.explored.len() != EXPLORED_H {
+        world.explored = empty_explored();
+        let (px, py) = (world.party_x, world.party_y);
+        stamp_explored(world, px, py, VISION_RADIUS + 0.01);
+        if let Some(doga) = catalog::location("doga") {
+            stamp_explored(world, doga.x, doga.y, VISION_RADIUS + 0.01);
+        }
+    }
+}
+
+pub fn cell_of(x: f32, y: f32) -> (usize, usize) {
+    let c = (x.clamp(0.0, 0.999) * EXPLORED_W as f32) as usize;
+    let r = (y.clamp(0.0, 0.999) * EXPLORED_H as f32) as usize;
+    (c.min(EXPLORED_W - 1), r.min(EXPLORED_H - 1))
+}
+
+pub fn is_explored(world: &WorldState, col: usize, row: usize) -> bool {
+    world
+        .explored
+        .get(row)
+        .map(|bits| bits & (1u64 << col) != 0)
+        .unwrap_or(false)
+}
+
+pub fn map_explored_at(world: &WorldState, x: f32, y: f32) -> bool {
+    let (c, r) = cell_of(x, y);
+    is_explored(world, c, r)
+}
+
+/// Reveal cells within `radius` (normalized map space) of `(x, y)`.
+pub fn stamp_explored(world: &mut WorldState, x: f32, y: f32, radius: f32) {
+    if world.explored.len() != EXPLORED_H {
+        world.explored = empty_explored();
+    }
+    let (cx, cy) = cell_of(x, y);
+    let rc = (radius * EXPLORED_W as f32).ceil() as i32 + 1;
+    let rr = (radius * EXPLORED_H as f32).ceil() as i32 + 1;
+    for dy in -rr..=rr {
+        for dx in -rc..=rc {
+            let c = cx as i32 + dx;
+            let r = cy as i32 + dy;
+            if c < 0 || r < 0 || c >= EXPLORED_W as i32 || r >= EXPLORED_H as i32 {
+                continue;
+            }
+            let mx = (c as f32 + 0.5) / EXPLORED_W as f32;
+            let my = (r as f32 + 0.5) / EXPLORED_H as f32;
+            if dist01(x, y, mx, my) <= radius {
+                if let Some(bits) = world.explored.get_mut(r as usize) {
+                    *bits |= 1u64 << (c as usize);
+                }
+            }
+        }
     }
 }
 
@@ -210,5 +290,35 @@ mod tests {
         assert_eq!(w.locations["doga"].status, WorldStatus::Cleared);
         assert_eq!(w.flags.get("doga-cleared"), Some(&true));
         assert_eq!(w.locations["paburo"].status, WorldStatus::Beacon);
+    }
+
+    #[test]
+    fn new_world_reveals_spawn_and_doga() {
+        let w = new_world();
+        assert!(map_explored_at(&w, w.party_x, w.party_y));
+        let doga = catalog::location("doga").unwrap();
+        assert!(map_explored_at(&w, doga.x, doga.y));
+        // Far corner stays shrouded.
+        assert!(!map_explored_at(&w, 0.95, 0.08));
+    }
+
+    #[test]
+    fn stamp_explored_opens_a_disc() {
+        let mut w = new_world();
+        w.explored = empty_explored();
+        stamp_explored(&mut w, 0.5, 0.5, 0.06);
+        assert!(map_explored_at(&w, 0.5, 0.5));
+        assert!(map_explored_at(&w, 0.53, 0.5));
+        assert!(!map_explored_at(&w, 0.8, 0.8));
+    }
+
+    #[test]
+    fn town_enter_radius_is_tight() {
+        assert!(TOWN_ENTER_RADIUS <= 0.06);
+        let doga = catalog::location("doga").unwrap();
+        // Spawn is next to Doga but not on top of it.
+        let w = new_world();
+        let d = dist01(w.party_x, w.party_y, doga.x, doga.y);
+        assert!(d < TOWN_ENTER_RADIUS + 0.02, "spawn should be near Doga ({d})");
     }
 }
