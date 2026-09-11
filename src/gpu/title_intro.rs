@@ -10,13 +10,17 @@ impl Renderer {
             [1.0, 1.0, 1.0, 1.0],
         );
         self.rect(&mut rc, [0.0, 0.0, 1.0, 1.0], [0.04, 0.03, 0.02, 0.48]);
+        self.text(&mut rc, "CLAYMORE", 0.08, 0.12, 0.028);
+        // Small rune mark beside the wordmark — never a giant corner brand/X.
+        let mark = 0.045;
+        let mark_x = 0.08 + 0.136 + 0.012; // ~8-letter wordmark width + gap
+        let mark_y = 0.12 + 0.028 * 0.5 - mark * 0.5;
         self.blit_px(
             &mut rc,
-            self.tex("kenney/rune/brand.png"),
-            [0.78, 0.08, 0.16, 0.22],
-            [0.55, 0.18, 0.16, 0.85],
+            self.tex("kenney/rune/mark.png"),
+            [mark_x, mark_y, mark, mark],
+            [0.70, 0.72, 0.76, 0.92],
         );
-        self.text(&mut rc, "CLAYMORE", 0.08, 0.12, 0.028);
         self.text(&mut rc, "NO. 47", 0.08, 0.20, 0.016);
         self.text(&mut rc, game.title_flavor(), 0.08, 0.28, 0.012);
         self.kenney_btn(&mut rc, "kenney/ui/button.png", hud::title_new(), "NEW HUNT", false);
