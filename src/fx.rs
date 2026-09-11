@@ -27,6 +27,8 @@ pub struct Floater {
     pub max: f32,
     pub text: String,
     pub tint: [f32; 4],
+    /// Dark ink plate behind the glyphs (hints on busy town art).
+    pub plate: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -203,6 +205,7 @@ impl Fx {
                 max: 0.85,
                 text: format!("{dmg}"),
                 tint: [0.92, 0.22, 0.16, 1.0],
+                plate: false,
             });
         } else if kind == "miss" {
             self.floaters.push(Floater {
@@ -213,6 +216,7 @@ impl Fx {
                 max: 0.6,
                 text: "MISS".into(),
                 tint: [0.72, 0.7, 0.62, 1.0],
+                plate: false,
             });
         }
     }
@@ -241,6 +245,7 @@ impl Fx {
             max: 0.7,
             text: format!("+{n}"),
             tint: [0.55, 0.82, 0.45, 1.0],
+            plate: false,
         });
     }
 
@@ -277,6 +282,7 @@ impl Fx {
             max: 2.2,
             text: text.into(),
             tint: [0.95, 0.88, 0.62, 1.0],
+            plate: true,
         });
     }
 
@@ -353,6 +359,15 @@ mod tests {
         assert!(!fx.particles.is_empty());
         assert!(!fx.floaters.is_empty());
         assert!(fx.trauma > 0.0);
+    }
+
+    #[test]
+    fn hint_requests_ink_plate() {
+        let mut fx = Fx::default();
+        fx.emit_hint(0.4, 0.5, "WALK CLOSER");
+        assert!(fx.floaters.iter().all(|f| f.plate));
+        fx.emit_hit(0.5, 0.5, 4, "hit");
+        assert!(fx.floaters.iter().any(|f| !f.plate && f.text == "4"));
     }
 
     #[test]

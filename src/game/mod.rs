@@ -355,6 +355,17 @@ mod tests {
     }
 
     #[test]
+    fn title_esc_arms_quit_confirm() {
+        let mut g = Game::new();
+        assert_eq!(g.mode, Mode::Title);
+        g.key(winit::keyboard::KeyCode::Escape, true);
+        g.key(winit::keyboard::KeyCode::Escape, false);
+        assert_eq!(g.mode, Mode::Title, "first Esc only arms quit");
+        assert!(g.esc_arm > 0.0);
+        assert!(g.fx.floaters.iter().any(|f| f.text.contains("QUIT") && f.plate));
+    }
+
+    #[test]
     fn town_esc_returns_to_world_not_title() {
         let mut g = Game::new();
         g.mode = Mode::Town;

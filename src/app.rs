@@ -180,7 +180,8 @@ impl ApplicationHandler for App {
                 if let PhysicalKey::Code(code) = event.physical_key {
                     if code == KeyCode::Escape && event.state == ElementState::Pressed {
                         #[cfg(not(target_arch = "wasm32"))]
-                        if self.game.mode == crate::game::Mode::Title {
+                        if self.game.mode == crate::game::Mode::Title && self.game.esc_arm > 0.0 {
+                            self.game.persist();
                             event_loop.exit();
                             return;
                         }
