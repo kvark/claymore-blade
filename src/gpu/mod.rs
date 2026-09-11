@@ -20,6 +20,12 @@ use std::collections::HashMap;
 
 
 const ASH: [f32; 4] = [0.72, 0.64, 0.52, 1.0];
+/// Dark metal plate tint for Kenney UI buttons (ink #0b0a09 family).
+const INK_PLATE: [f32; 4] = [0.14, 0.12, 0.11, 1.0];
+/// Ash type #ebe4d6 for button labels.
+const ASH_TYPE: [f32; 4] = [0.922, 0.894, 0.839, 1.0];
+/// Steel #c8ccd4 for hot/selected overlays (never gold).
+const STEEL: [f32; 4] = [0.784, 0.800, 0.831, 1.0];
 const BLOOD: [f32; 4] = [0.72, 0.18, 0.14, 1.0];
 
 const KENNEY: &[&str] = &[

@@ -51,11 +51,29 @@ impl Renderer {
         } else {
             kind
         };
-        self.blit_px(rc, self.tex(tex), r.pos(), ASH);
+        // Dark ink plates; danger chips (button-red) keep a blood tint.
+        let plate = if kind.contains("button-red") {
+            BLOOD
+        } else {
+            INK_PLATE
+        };
+        self.blit_px(rc, self.tex(tex), r.pos(), plate);
         if hot {
-            self.rect(rc, r.pos(), [0.72, 0.55, 0.22, 0.22]);
+            let mut steel = STEEL;
+            steel[3] = 0.22;
+            self.rect(rc, r.pos(), steel);
         }
-        self.text(rc, label, r.x + 0.016, r.y + r.h * 0.32, 0.013);
+        let glyph_h = 0.022;
+        let glyph_w = glyph_h * 0.7;
+        let n = label.chars().filter(|c| *c != '\n').count() as f32;
+        let text_w = if n > 0.0 {
+            glyph_w * ((n - 1.0) * 0.85 + 1.0)
+        } else {
+            0.0
+        };
+        let tx = r.x + (r.w - text_w) * 0.5;
+        let ty = r.y + (r.h - glyph_h) * 0.5;
+        self.text_tint(rc, label, tx, ty, glyph_h, ASH_TYPE);
     }
 
     pub(super) fn bar(

@@ -32,40 +32,40 @@ impl Rect {
 }
 
 pub fn title_new() -> Rect {
-    // Taller on phone (0.10) so thumbs hit reliably
-    Rect::new(0.07, 0.68, 0.36, 0.10)
+    // Compact chip: thumb height, width fit to "NEW HUNT"
+    Rect::new(0.07, 0.70, 0.17, 0.08)
 }
 
 pub fn title_continue() -> Rect {
-    Rect::new(0.07, 0.80, 0.36, 0.10)
+    Rect::new(0.07, 0.80, 0.17, 0.08)
 }
 
 pub fn world_codex() -> Rect {
-    Rect::new(0.80, 0.90, 0.18, 0.08)
+    Rect::new(0.84, 0.90, 0.14, 0.08)
 }
 
 pub fn town_hunt() -> Rect {
-    Rect::new(0.06, 0.76, 0.24, 0.10)
+    Rect::new(0.06, 0.78, 0.14, 0.08)
 }
 
 pub fn town_rest() -> Rect {
-    Rect::new(0.32, 0.76, 0.22, 0.10)
+    Rect::new(0.22, 0.78, 0.13, 0.08)
 }
 
 pub fn town_leave() -> Rect {
-    Rect::new(0.56, 0.76, 0.22, 0.10)
+    Rect::new(0.37, 0.78, 0.14, 0.08)
 }
 
 pub fn result_ok() -> Rect {
-    Rect::new(0.10, 0.72, 0.30, 0.10)
+    Rect::new(0.10, 0.74, 0.15, 0.08)
 }
 
 pub fn scene_yes() -> Rect {
-    Rect::new(0.08, 0.76, 0.30, 0.10)
+    Rect::new(0.08, 0.78, 0.16, 0.08)
 }
 
 pub fn scene_no() -> Rect {
-    Rect::new(0.42, 0.76, 0.30, 0.10)
+    Rect::new(0.26, 0.78, 0.16, 0.08)
 }
 
 pub struct CombatBar {
