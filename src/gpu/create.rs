@@ -85,6 +85,34 @@ impl Renderer {
         }
         let fighter = upload_slice(context, "fighter", &fighter_verts);
         let fighter_count = fighter_verts.len() as u32;
+
+        let upload_model = |name: &str, path: &str| -> Option<(gpu::Buffer, u32)> {
+            match crate::gltf::load_asset(path) {
+                Ok(mesh) => {
+                    let mut verts: Vec<MeshVertex> = Vec::new();
+                    for (pos, normal, joint, weights) in mesh.to_skinned_vertices() {
+                        verts.push(MeshVertex {
+                            pos,
+                            normal,
+                            joints: joint,
+                            weights,
+                        });
+                    }
+                    if verts.is_empty() {
+                        log::warn!("gltf {path}: empty after expand");
+                        return None;
+                    }
+                    let count = verts.len() as u32;
+                    Some((upload_slice(context, name, &verts), count))
+                }
+                Err(e) => {
+                    log::warn!("gltf {path}: {e}");
+                    None
+                }
+            }
+        };
+        let vika = upload_model("vika", "models/vika.glb");
+        let valefor = upload_model("valefor", "models/valefor.glb");
         let quad_data = [
             QuadVertex { pos: [0.0, 0.0] },
             QuadVertex { pos: [1.0, 0.0] },
@@ -140,6 +168,8 @@ impl Renderer {
             prism_count: verts.len() as u32,
             fighter,
             fighter_count,
+            vika,
+            valefor,
             quad,
             sampler,
             pixel,

@@ -170,6 +170,10 @@ pub struct Renderer {
     prism_count: u32,
     fighter: gpu::Buffer,
     fighter_count: u32,
+    /// Archive hero (vika) — Clare / player fighters. Falls back to procedural fighter.
+    vika: Option<(gpu::Buffer, u32)>,
+    /// Archive monster (valefor) — yoma / enemies.
+    valefor: Option<(gpu::Buffer, u32)>,
     quad: gpu::Buffer,
     sampler: gpu::Sampler,
     pixel: gpu::Sampler,

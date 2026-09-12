@@ -9,6 +9,7 @@ pub mod clip;
 pub mod combat;
 pub mod dialog;
 pub mod font;
+pub mod gltf;
 pub mod fx;
 pub mod game;
 pub mod gpu;
