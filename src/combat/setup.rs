@@ -266,6 +266,8 @@ pub(crate) fn begin_turn(state: &mut CombatState) {
         return;
     };
     u.ap = u.max_ap;
+    // Raise is 0 AP once per turn (DESIGN §11.2). Clear so it can stack across the fight.
+    u.raised_trans = false;
     for s in &mut u.statuses {
         if s.turns > 0 {
             s.turns -= 1;
@@ -388,6 +390,97 @@ mod tests {
         assert_eq!(s.units.iter().filter(|u| u.side == Side::Enemy).count(), 3);
         assert!(!s.units.iter().any(|u| u.template_id == "raki"));
         assert!(!s.support_raki);
+    }
+
+    #[test]
+    fn raise_is_once_per_turn_and_stacks_to_flash() {
+        let enc = catalog::encounter("doga-yoma").unwrap();
+        let mut s = create_battle(enc, &["clare".into()], 3);
+        let flash = catalog::skill("flash").expect("flash");
+        assert_eq!(flash.trans, 40, "Flash / Quicksword stays gated at trans 40");
+
+        let clare_i = s
+            .order
+            .iter()
+            .position(|id| id == "clare")
+            .expect("clare in order");
+        s.turn = clare_i;
+        begin_turn(&mut s);
+
+        let start = s.units.iter().find(|u| u.id == "clare").unwrap().trans;
+        assert!(
+            start < flash.trans,
+            "Clare should start below Flash in a normal hunt, trans={start}"
+        );
+        {
+            let clare = s.units.iter().find(|u| u.id == "clare").unwrap();
+            assert!(
+                !can_use(clare, flash, raki_can_help(&s, "clare")),
+                "Flash must stay locked before Raises"
+            );
+        }
+
+        // Same-turn: Raise once, then lock out.
+        act(&mut s, PlayerAction::Raise, true);
+        let after_one = s.units.iter().find(|u| u.id == "clare").unwrap().trans;
+        assert_eq!(after_one, (start + 15).min(100));
+        assert!(s.units.iter().find(|u| u.id == "clare").unwrap().raised_trans);
+        act(&mut s, PlayerAction::Raise, true);
+        let after_dup = s.units.iter().find(|u| u.id == "clare").unwrap().trans;
+        assert_eq!(
+            after_dup, after_one,
+            "second Raise on the same turn must no-op"
+        );
+
+        // Across turns: each Clare turn allows one more Raise until Flash opens.
+        let mut raises = 1i32;
+        let mut guard = 0;
+        while raises < 8 && guard < 48 {
+            guard += 1;
+            let as_player = current_unit(&s)
+                .map(|u| u.side == Side::Player)
+                .unwrap_or(false);
+            act(&mut s, PlayerAction::Wait, as_player);
+            let Some(u) = current_unit(&s) else {
+                break;
+            };
+            if u.id != "clare" {
+                continue;
+            }
+            let before = u.trans;
+            if before >= flash.trans {
+                break;
+            }
+            act(&mut s, PlayerAction::Raise, true);
+            let after = s.units.iter().find(|x| x.id == "clare").unwrap().trans;
+            assert!(
+                after > before,
+                "Raise on a fresh Clare turn should stack (before {before} after {after})"
+            );
+            raises += 1;
+            // Same-turn lockout still holds after each stacking Raise.
+            act(&mut s, PlayerAction::Raise, true);
+            assert_eq!(
+                s.units.iter().find(|x| x.id == "clare").unwrap().trans,
+                after
+            );
+        }
+
+        let clare = s.units.iter().find(|u| u.id == "clare").unwrap();
+        assert!(
+            clare.trans >= flash.trans,
+            "Raise stacking should reach Flash gate, trans={} after {raises} Raises",
+            clare.trans
+        );
+        assert!(
+            raises >= 2,
+            "one-shot fight lockout is gone: need multiple Raises, got {raises}"
+        );
+        assert!(
+            can_use(clare, flash, raki_can_help(&s, "clare")),
+            "Flash should be usable after stacked Raises (trans={})",
+            clare.trans
+        );
     }
 
     #[test]
