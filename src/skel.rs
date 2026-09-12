@@ -17,6 +17,7 @@ pub struct Bone {
     pub glow: f32,
 }
 
+#[derive(Clone, Copy)]
 pub struct PoseInput {
     pub x: f32,
     pub z: f32,
@@ -200,6 +201,99 @@ pub fn identity_palette() -> [[f32; 12]; JOINTS] {
     out
 }
 
+/// Bind centers for height-normalized archive GLBs (Y in `[0, 1]`, feet on ground).
+pub fn archive_bind_centers() -> [[f32; 3]; 7] {
+    [
+        [0.0, 0.18, 0.0],
+        [0.0, 0.48, 0.0],
+        [0.0, 0.88, 0.0],
+        [0.22, 0.55, 0.0],
+        [-0.22, 0.55, 0.0],
+        [0.09, 0.12, 0.0],
+        [-0.09, 0.12, 0.0],
+    ]
+}
+
+/// Map a height-normalized archive vertex to the 7-bone fight palette.
+/// Height bands first (works for asymmetric meshes like vika); extreme
+/// lateral verts become arms so wide monsters (ifrit/valefor) can swing.
+pub fn assign_archive_joint(pos: [f32; 3]) -> u32 {
+    let x = pos[0];
+    let y = pos[1];
+    if y < 0.26 {
+        if x.abs() > 0.05 {
+            return if x >= 0.0 { 5 } else { 6 };
+        }
+        return 0;
+    }
+    if y > 0.80 {
+        return 2;
+    }
+    if (0.42..0.70).contains(&y) && x.abs() > 0.40 {
+        return if x >= 0.0 { 3 } else { 4 };
+    }
+    if y < 0.42 {
+        return 0;
+    }
+    1
+}
+
+fn rel_yaw_affine(bind: [f32; 3], dx: f32, dy: f32, dz: f32, yaw: f32) -> [f32; 12] {
+    let c = yaw.cos();
+    let s = yaw.sin();
+    // p' = R_y(yaw) * (p - bind) + bind + delta
+    let tx = bind[0] - (c * bind[0] - s * bind[2]) + dx;
+    let ty = dy;
+    let tz = bind[2] - (s * bind[0] + c * bind[2]) + dz;
+    [c, 0.0, -s, tx, 0.0, 1.0, 0.0, ty, s, 0.0, c, tz]
+}
+
+/// Model-space relative skin from `pose_fighter` deltas (idle bob, Cut swing, hurt flinch).
+/// Archive meshes stay in unit height; world/pose still place and face the draw.
+pub fn archive_joint_palette(p: &PoseInput) -> [[f32; 12]; JOINTS] {
+    let posed = pose_fighter(p);
+    let rest = pose_fighter(&PoseInput {
+        x: p.x,
+        z: p.z,
+        size: p.size,
+        facing: p.facing,
+        cam_yaw: p.cam_yaw,
+        time: 0.0,
+        color: p.color,
+        side: p.side,
+        acting: false,
+        hurt: false,
+        trans: p.trans,
+        clip: FightClip::Idle,
+        clip_u: 0.0,
+    });
+    let s = p.size.max(1.0);
+    let bind = archive_bind_centers();
+    let mut out = identity_palette();
+    // Slim archive heroes (vika) are torso-heavy; fold weapon-arm reach into torso
+    // so Slash/Cut still reads without GLB joints.
+    let arm_blend = 0.55;
+    for i in 0..7 {
+        let mut dx = (posed[i].x - rest[i].x) / s;
+        let mut dy = (posed[i].y - rest[i].y) / s;
+        let mut dz = (posed[i].z - rest[i].z) / s;
+        let mut dyaw = posed[i].yaw - rest[i].yaw;
+        if i == 1 {
+            dx += ((posed[3].x - rest[3].x) / s) * arm_blend;
+            dy += ((posed[3].y - rest[3].y) / s) * arm_blend * 0.5;
+            dz += ((posed[3].z - rest[3].z) / s) * arm_blend;
+            dyaw += (posed[3].yaw - rest[3].yaw) * 0.35;
+        }
+        // Slightly punch clip motion so unit-height meshes read at hex scale.
+        dx *= 1.25;
+        dy *= 1.15;
+        dz *= 1.25;
+        dyaw *= 1.1;
+        out[i] = rel_yaw_affine(bind[i], dx, dy, dz, dyaw);
+    }
+    out
+}
+
 pub fn fighter_vertices() -> Vec<([f32; 3], [f32; 3], u32, u32)> {
     let bind = bind_centers();
     let half = [
@@ -273,5 +367,35 @@ mod tests {
         let dx = slash[3].x - idle[3].x;
         let dz = slash[3].z - idle[3].z;
         assert!(dx * dx + dz * dz > 20.0, "weapon arm should lunge on slash");
+    }
+
+    #[test]
+    fn archive_joint_by_height() {
+        assert_eq!(assign_archive_joint([0.0, 0.05, 0.0]), 0, "feet-center → hip");
+        assert_eq!(assign_archive_joint([0.12, 0.10, 0.0]), 5, "right foot → right leg");
+        assert_eq!(assign_archive_joint([-0.12, 0.10, 0.0]), 6, "left foot → left leg");
+        assert_eq!(assign_archive_joint([0.0, 0.50, 0.0]), 1, "chest → torso");
+        assert_eq!(assign_archive_joint([0.0, 0.92, 0.0]), 2, "crown → head");
+        assert_eq!(assign_archive_joint([0.55, 0.55, 0.0]), 3, "wide right → arm");
+        assert_eq!(assign_archive_joint([-0.55, 0.55, 0.0]), 4, "wide left → arm");
+    }
+
+    #[test]
+    fn archive_slash_palette_moves_torso() {
+        let base = PoseInput {
+            x: 0.0, z: 0.0, size: 40.0, facing: 0, cam_yaw: 0, time: 0.0,
+            color: [1.0, 1.0, 1.0], side: Side::Player, acting: true, hurt: false, trans: 0,
+            clip: FightClip::Idle, clip_u: 0.0,
+        };
+        let idle = archive_joint_palette(&base);
+        let slash = archive_joint_palette(&PoseInput { clip: FightClip::Slash, clip_u: 0.38, ..base });
+        // Torso translation tx/tz (indices 3 and 11) should shift on slash.
+        let dtx = slash[1][3] - idle[1][3];
+        let dtz = slash[1][11] - idle[1][11];
+        assert!(dtx * dtx + dtz * dtz > 0.01, "archive torso should swing on slash");
+        let hurt = archive_joint_palette(&PoseInput { clip: FightClip::Hurt, clip_u: 0.25, ..base });
+        let htx = hurt[1][3] - idle[1][3];
+        let htz = hurt[1][11] - idle[1][11];
+        assert!(htx * htx + htz * htz > 0.002, "archive torso should flinch on hurt");
     }
 }

@@ -15,7 +15,7 @@ impl MeshData {
     }
 
     /// Expand indexed triangles into a flat vertex list for the hunt pipeline.
-    /// Static skin: joint 0, weight 0xFF.
+    /// Vertices are bound to the 7-bone fight palette by height (see `assign_archive_joint`).
     pub fn to_skinned_vertices(&self) -> Vec<([f32; 3], [f32; 3], u32, u32)> {
         let mut out = Vec::with_capacity(self.indices.len());
         let w = 0x0000_00FFu32;
@@ -23,7 +23,8 @@ impl MeshData {
             let i = i as usize;
             let pos = self.positions.get(i).copied().unwrap_or([0.0; 3]);
             let nrm = self.normals.get(i).copied().unwrap_or([0.0, 1.0, 0.0]);
-            out.push((pos, nrm, 0, w));
+            let joint = crate::skel::assign_archive_joint(pos);
+            out.push((pos, nrm, joint, w));
         }
         out
     }
@@ -320,7 +321,11 @@ mod tests {
         assert_eq!(mesh.indices.len() % 3, 0);
         let skinned = mesh.to_skinned_vertices();
         assert_eq!(skinned.len(), mesh.indices.len());
-        assert!(skinned[0].2 == 0 && skinned[0].3 == 0xFF);
+        // [0,0,0] → hip (0); weights packed as single influence.
+        assert_eq!(skinned[0].2, 0);
+        assert_eq!(skinned[0].3, 0xFF);
+        // [0,1,0] third index → head
+        assert_eq!(skinned[2].2, 2);
     }
 
     #[test]
@@ -344,7 +349,9 @@ mod tests {
         assert_eq!(mesh.indices.len() % 3, 0);
         let skinned = mesh.to_skinned_vertices();
         assert_eq!(skinned.len(), mesh.indices.len());
-        assert!(skinned[0].2 == 0 && skinned[0].3 == 0xFF);
+        assert!(skinned.iter().all(|v| v.2 < 7 && v.3 == 0xFF));
+        assert!(skinned.iter().any(|v| v.2 == 1), "vika should have torso verts");
+        assert!(skinned.iter().any(|v| v.2 == 2), "vika should have head verts");
     }
 
     #[test]

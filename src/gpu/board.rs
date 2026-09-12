@@ -1,5 +1,5 @@
 use super::*;
-use crate::skel::{identity_palette, joint_palette, pose_fighter, PoseInput};
+use crate::skel::{archive_joint_palette, identity_palette, joint_palette, pose_fighter, PoseInput};
 
 impl Renderer {
     pub(super) fn draw_board(
@@ -97,11 +97,6 @@ impl Renderer {
                     ArchiveKind::Vika => unit_size * 1.35,
                     ArchiveKind::Valefor => unit_size * 0.9,
                 };
-                let bob = if acting {
-                    (t * 5.5).sin() * unit_size * 0.02
-                } else {
-                    (t * 3.1).sin() * unit_size * 0.01
-                };
                 // Sit on hex top so the mesh is not buried in the prism.
                 let ground = combat
                     .terrain
@@ -122,15 +117,33 @@ impl Renderer {
                     ArchiveKind::Vika => 0.12,
                     ArchiveKind::Valefor => 0.0,
                 };
+                // Drive archive skin with the same fight clips as procedural bones
+                // (idle bob / Cut swing / hurt flinch) via hunt.wgsl's 8-joint palette.
+                let pose_in = PoseInput {
+                    x,
+                    z,
+                    size: unit_size,
+                    facing: u.facing,
+                    cam_yaw: yaw,
+                    time: t
+                        + (u.id.bytes().fold(0u32, |a, b| a.wrapping_add(b as u32)) as f32) * 0.07,
+                    color: u.color,
+                    side: u.side,
+                    acting,
+                    hurt: hurt && acting,
+                    trans: u.trans,
+                    clip,
+                    clip_u,
+                };
                 rc.bind_vertex(0, buf.into());
                 rc.bind(
                     1,
                     &HuntDraw {
                         locals: HuntLocal {
-                            world: [x, ground + bob, z, scale],
+                            world: [x, ground, z, scale],
                             color: [cr, cg, cb, scale],
                             pose: [face.cos(), face.sin(), 0.0, mesh_glow],
-                            joints: identity_palette(),
+                            joints: archive_joint_palette(&pose_in),
                         },
                     },
                 );
