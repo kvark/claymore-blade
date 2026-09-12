@@ -130,7 +130,7 @@ pub static SKILLS: &[SkillDef] = &[
         telegraph: false,
         afterimage: false,
         unblockable: false,
-        strikes: false,
+        strikes: true,
         length: 1,
         ..sk(
             "cut",
@@ -380,19 +380,22 @@ pub static SKILLS: &[SkillDef] = &[
             0,
         )
     },
-    sk(
-        "claw",
-        "Rend",
-        "A yoma's only thesis.",
-        1,
-        0,
-        0,
-        ShapeKind::Single,
-        1,
-        Attr::S,
-        Attr::A,
-        16,
-    ),
+    SkillDef {
+        strikes: true,
+        ..sk(
+            "claw",
+            "Rend",
+            "A yoma's only thesis.",
+            1,
+            0,
+            0,
+            ShapeKind::Single,
+            1,
+            Attr::S,
+            Attr::A,
+            16,
+        )
+    },
     SkillDef {
         length: 2,
         ..sk(

@@ -352,6 +352,10 @@ mod tests {
         assert!(skinned.iter().all(|v| v.2 < 7 && v.3 == 0xFF));
         assert!(skinned.iter().any(|v| v.2 == 1), "vika should have torso verts");
         assert!(skinned.iter().any(|v| v.2 == 2), "vika should have head verts");
+        assert!(
+            skinned.iter().any(|v| v.2 == 3 || v.2 == 4),
+            "vika should bind some verts to arm joints (Quicksword snap)"
+        );
     }
 
     #[test]
@@ -371,5 +375,16 @@ mod tests {
         }
         let mesh = load_glb(&bytes).expect("parse valefor");
         assert!(mesh.vertex_count() > 100);
+        let skinned = mesh.to_skinned_vertices();
+        let arms = skinned.iter().filter(|v| v.2 == 3 || v.2 == 4).count();
+        let high_arms = skinned
+            .iter()
+            .filter(|v| (v.2 == 3 || v.2 == 4) && v.0[1] > 0.75)
+            .count();
+        assert!(arms > 100, "valefor wings/arms should bind to arm joints, got {arms}");
+        assert!(
+            high_arms > 0,
+            "some high lateral valefor verts should leave the head band for arms"
+        );
     }
 }
