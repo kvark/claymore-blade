@@ -149,7 +149,7 @@ impl Game {
                 winit::keyboard::KeyCode::Digit3 | winit::keyboard::KeyCode::Numpad3 => {
                     if self.mode == Mode::Combat {
                         audio::click();
-                        self.ui.selected_skill = Some("aimed".into());
+                        self.pick_skill_slot(4);
                     }
                 }
                 winit::keyboard::KeyCode::KeyG => {

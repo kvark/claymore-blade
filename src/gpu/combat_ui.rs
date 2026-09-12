@@ -171,16 +171,22 @@ impl Renderer {
             sel == Some("cut"),
             0.026,
         );
-        let slot_label = current_unit(combat)
+        let slot_id = current_unit(combat)
             .and_then(|u| u.skills.get(4))
+            .map(|s| s.as_str());
+        let slot_label = slot_id
             .map(|s| s.to_ascii_uppercase())
             .unwrap_or_else(|| "—".into());
+        let slot_hot = match (sel, slot_id) {
+            (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
+            _ => false,
+        };
         self.kenney_btn_ex(
             &mut rc,
             "kenney/ui/button-grey.png",
             bar.slot,
             &slot_label,
-            false,
+            slot_hot,
             0.026,
         );
         self.kenney_btn_ex(
