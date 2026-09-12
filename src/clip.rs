@@ -7,6 +7,7 @@ pub enum FightClip {
     Slash,
     Lunge,
     Guard,
+    Wait,
     Raise,
     Hurt,
 }
@@ -18,7 +19,8 @@ impl FightClip {
             Self::Ready => 0.55,
             Self::Slash => 0.42,
             Self::Lunge => 0.36,
-            Self::Guard => 0.50,
+            Self::Guard => 0.55,
+            Self::Wait => 0.60,
             Self::Raise => 0.55,
             Self::Hurt => 0.34,
         }

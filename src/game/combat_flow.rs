@@ -153,7 +153,7 @@ impl Game {
             match action {
                 PlayerAction::Move(_) => self.fx.play_clip(id, crate::fx::FightClip::Lunge),
                 PlayerAction::Raise => self.fx.play_clip(id, crate::fx::FightClip::Raise),
-                PlayerAction::Wait => self.fx.play_clip(id, crate::fx::FightClip::Ready),
+                PlayerAction::Wait => self.fx.play_clip(id, crate::fx::FightClip::Wait),
                 PlayerAction::Skill { id: skill, .. } if skill == "guard" => {
                     self.fx.play_clip(id, crate::fx::FightClip::Guard)
                 }

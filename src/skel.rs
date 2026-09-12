@@ -172,14 +172,47 @@ fn apply_clip(
             }
         }
         FightClip::Guard => {
-            let k = pulse(u, 0.2).max(0.55);
-            bones[0].y -= k * s * 0.03;
-            bones[3].x += fwd_x * s * 0.10 * k;
-            bones[3].z += fwd_z * s * 0.10 * k;
-            bones[4].x += fwd_x * s * 0.10 * k;
-            bones[4].z += fwd_z * s * 0.10 * k;
-            bones[3].y += k * s * 0.04;
-            bones[4].y += k * s * 0.04;
+            // Claymore "blade up": braced plant, sword high and upright — not a crouch.
+            let k = pulse(u, 0.18).max(0.72);
+            bones[0].y -= k * s * 0.012;
+            bones[0].x += fwd_x * k * s * 0.02;
+            bones[0].z += fwd_z * k * s * 0.02;
+            bones[1].lean -= k * 0.06;
+            bones[1].yaw += k * 0.08;
+            bones[2].lean -= k * 0.04;
+            // Weapon arm: raise and tip the blade vertical in front of the body.
+            bones[3].y += k * s * 0.14;
+            bones[3].x += fwd_x * s * 0.06 * k;
+            bones[3].z += fwd_z * s * 0.06 * k;
+            bones[3].yaw -= k * 0.55;
+            bones[3].lean -= k * 0.85;
+            bones[3].glow = (bones[3].glow + k * 0.35).min(1.2);
+            // Off-hand braces near the hilt / chest.
+            bones[4].y += k * s * 0.06;
+            bones[4].x += fwd_x * s * 0.05 * k;
+            bones[4].z += fwd_z * s * 0.05 * k;
+            bones[4].lean -= k * 0.25;
+            bones[5].lean += k * 0.08;
+            bones[6].lean -= k * 0.06;
+        }
+        FightClip::Wait => {
+            // Still breath, sword lowered — not a Ready dance or idle bob amp.
+            let k = pulse(u, 0.25).max(0.65);
+            let breath = (u * std::f32::consts::PI).sin().abs() * 0.35 + 0.65;
+            let hold = k * breath;
+            bones[1].y += hold * s * 0.012;
+            bones[2].y += hold * s * 0.008;
+            // Lower the claymore; soften the ready arm angle.
+            bones[3].y -= k * s * 0.07;
+            bones[3].x -= fwd_x * s * 0.03 * k;
+            bones[3].z -= fwd_z * s * 0.03 * k;
+            bones[3].yaw -= k * 0.28;
+            bones[3].lean += k * 0.22;
+            bones[4].y -= k * s * 0.02;
+            bones[4].lean += k * 0.08;
+            // Plant: kill the walk swing read without squatting.
+            bones[5].lean *= 1.0 - k * 0.55;
+            bones[6].lean *= 1.0 - k * 0.55;
         }
         FightClip::Raise => {
             let k = pulse(u, 0.4).max(0.4);
@@ -356,6 +389,8 @@ pub fn archive_joint_palette(p: &PoseInput) -> [[f32; 12]; JOINTS] {
         FightClip::Slash if !enemy => (1.15, 1.08, 1.15, 1.45), // punch yaw for snap
         FightClip::Slash if enemy => (1.55, 1.40, 1.55, 1.20),  // stretch read
         FightClip::Hurt => (1.50, 1.40, 1.50, 1.30),
+        FightClip::Guard => (1.20, 1.45, 1.20, 1.25), // blade-up vertical read
+        FightClip::Wait => (1.15, 1.35, 1.15, 1.15),  // lowered sword
         _ => (1.25, 1.15, 1.25, 1.10),
     };
     for i in 0..7 {
@@ -520,5 +555,54 @@ mod tests {
         let hlean = (hurt[1][0] - idle[1][0]).abs() + (hurt[2][7] - idle[2][7]).abs();
         let _ = hlean; // head/torso also shift in ty
         assert!((hurt[2][7] - idle[2][7]).abs() > 0.01, "head should tuck on hurt");
+    }
+
+    #[test]
+    fn guard_raises_blade_wait_lowers() {
+        let base = PoseInput {
+            x: 0.0, z: 0.0, size: 40.0, facing: 0, cam_yaw: 0, time: 0.0,
+            color: [1.0, 1.0, 1.0], side: Side::Player, acting: false, hurt: false, trans: 0,
+            clip: FightClip::Idle, clip_u: 0.0,
+        };
+        let idle = pose_fighter(&base);
+        let guard = pose_fighter(&PoseInput { clip: FightClip::Guard, clip_u: 0.35, ..base });
+        let wait = pose_fighter(&PoseInput { clip: FightClip::Wait, clip_u: 0.40, ..base });
+        assert!(
+            guard[3].y > idle[3].y + 2.0,
+            "Guard should raise the weapon arm (blade up), got {} vs {}",
+            guard[3].y,
+            idle[3].y
+        );
+        assert!(
+            (guard[3].lean - idle[3].lean).abs() > 0.4,
+            "Guard blade should tip upright vs ready lean"
+        );
+        assert!(
+            wait[3].y < idle[3].y - 1.0,
+            "Wait should lower the sword, got {} vs {}",
+            wait[3].y,
+            idle[3].y
+        );
+        assert!(
+            guard[3].y > wait[3].y + 4.0,
+            "Guard and Wait must read as distinct arm heights"
+        );
+    }
+
+    #[test]
+    fn archive_guard_wait_palette() {
+        let base = PoseInput {
+            x: 0.0, z: 0.0, size: 40.0, facing: 0, cam_yaw: 0, time: 0.0,
+            color: [1.0, 1.0, 1.0], side: Side::Player, acting: true, hurt: false, trans: 0,
+            clip: FightClip::Idle, clip_u: 0.0,
+        };
+        let idle = archive_joint_palette(&base);
+        let guard = archive_joint_palette(&PoseInput { clip: FightClip::Guard, clip_u: 0.35, ..base });
+        let wait = archive_joint_palette(&PoseInput { clip: FightClip::Wait, clip_u: 0.40, ..base });
+        let gdy = guard[3][7] - idle[3][7];
+        let wdy = wait[3][7] - idle[3][7];
+        assert!(gdy > 0.02, "archive Guard should lift arm joint ty, got {gdy}");
+        assert!(wdy < -0.01, "archive Wait should drop arm joint ty, got {wdy}");
+        assert!(gdy > wdy + 0.04, "archive Guard/Wait arm heights must differ");
     }
 }
