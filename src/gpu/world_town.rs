@@ -86,30 +86,9 @@ impl Renderer {
                 self.text(&mut rc, "DARK", loc.x - 0.018, loc.y + ph * 0.18, 0.011);
             }
         }
-        // Clare: face walk direction; bob/lean share step_acc cadence with footfalls.
+        // Clare party marker: banner + archive vika (hunt overlay) or 2D portrait fallback.
         let facing = if game.facing >= 0.0 { 1.0 } else { -1.0 };
-        let step = if game.walking {
-            (game.step_acc / crate::game::WORLD_STEP_PERIOD * std::f32::consts::TAU).sin()
-        } else {
-            (game.fx.time * 2.2).sin()
-        };
-        let bob = if game.walking {
-            step.abs() * 0.014 + step * 0.003
-        } else {
-            (game.fx.time * 3.4).sin() * 0.004
-        };
-        let lean_x = if game.walking { facing * 0.007 } else { 0.0 };
-        let lean_y = if game.walking { game.facing_y * 0.006 } else { 0.0 };
-        let squash = if game.walking {
-            1.0 + step.abs() * 0.09
-        } else {
-            1.0
-        };
-        let stretch = if game.walking {
-            1.0 - step.abs() * 0.07
-        } else {
-            1.0
-        };
+        let (bob, lean_x, lean_y, squash, stretch) = party_bob_lean(game, facing);
         let base_w = 0.032 * squash;
         let base_h = 0.058 * stretch;
         let px = game.world.party_x + lean_x;
@@ -125,7 +104,8 @@ impl Renderer {
             ],
             [0.92, 0.88, 0.72, 1.0],
         );
-        if self.images.contains_key("sprites/clare.png") {
+        // Prefer archive GLB drawn in the hunt overlay; portrait only if mesh missing (LFS).
+        if self.vika.is_none() && self.images.contains_key("sprites/clare.png") {
             // Flip UVs when facing left so the portrait looks the way she walks.
             let uv = if facing < 0.0 {
                 [1.0, 0.0, -1.0, 1.0]
@@ -146,6 +126,17 @@ impl Renderer {
                 [1.0, 1.0, 1.0, 1.0],
             );
         }
+    }
+
+    /// Island HUD chips / prompts — drawn after the party mesh so they stay readable.
+    pub(super) fn draw_world_hud(
+        &self,
+        pass: &mut gpu::RenderCommandEncoder,
+        game: &Game,
+        _w: f32,
+        _h: f32,
+    ) {
+        let mut rc = pass.with(&self.flat);
         self.blit_px(
             &mut rc,
             self.tex("kenney/ui/panel.png"),
@@ -230,5 +221,123 @@ impl Renderer {
         self.kenney_btn(&mut rc, "kenney/ui/button-grey.png", hud::town_rest(), "REST", false);
         self.kenney_btn(&mut rc, "kenney/ui/button-brown.png", hud::town_leave(), "LEAVE", false);
         self.draw_fx(&mut rc, game);
+    }
+
+    /// Draw archive vika as the island party (hunt/iso path). No-op if mesh unavailable.
+    pub(super) fn draw_world_party(
+        &self,
+        pass: &mut gpu::RenderCommandEncoder,
+        game: &Game,
+        w: f32,
+        h: f32,
+    ) {
+        let Some((buf, count)) = self.vika else {
+            return;
+        };
+        let facing = if game.facing >= 0.0 { 1.0 } else { -1.0 };
+        let (bob, lean_x, lean_y, _, _) = party_bob_lean(game, facing);
+        let px = game.world.party_x + lean_x;
+        let py = game.world.party_y + lean_y;
+        // Screen pixels for feet; zoom maps unit-height mesh to ~portrait scale.
+        let zoom = h.min(w) * 0.055;
+        let scale = 1.35;
+        let ox = px * w;
+        let oy = py * h;
+        let bob_y = bob * h / zoom.max(1.0);
+        let face = island_face_yaw(facing, game.facing_y);
+        let mut rc = pass.with(&self.hunt);
+        rc.bind(
+            0,
+            &HuntFrame {
+                globals: HuntGlobals {
+                    origin_zoom: [ox, oy, zoom, 0.0],
+                    screen: [w, h, 0.0, 0.0],
+                    // Strong key light so solid-color vika reads facing on the flat map.
+                    light_dir: [0.55, 0.55, -0.45, 0.0],
+                    lamp0: [0.35, scale * 0.9, -0.25, 0.55],
+                    lamp0c: [0.85, 0.82, 0.75, 1.8],
+                    lamp1: [-0.4, scale * 0.4, 0.35, 0.25],
+                    lamp1c: [0.35, 0.40, 0.48, 2.5],
+                },
+            },
+        );
+        rc.bind_vertex(0, buf.into());
+        // Clare steel tint — keep luminance below wash-out so normals show facing.
+        let (cr, cg, cb) = (0.72_f32, 0.74, 0.78);
+        rc.bind(
+            1,
+            &HuntDraw {
+                locals: HuntLocal {
+                    world: [0.0, bob_y, 0.0, scale],
+                    color: [cr, cg, cb, scale],
+                    pose: [face.cos(), face.sin(), 0.0, 0.04],
+                    joints: crate::skel::identity_palette(),
+                },
+            },
+        );
+        rc.draw(0, count, 0, 1);
+    }
+}
+
+/// Shared step bob / lean with the 2D portrait path (normalized map space).
+fn party_bob_lean(game: &Game, facing: f32) -> (f32, f32, f32, f32, f32) {
+    let step = if game.walking {
+        (game.step_acc / crate::game::WORLD_STEP_PERIOD * std::f32::consts::TAU).sin()
+    } else {
+        (game.fx.time * 2.2).sin()
+    };
+    let bob = if game.walking {
+        step.abs() * 0.014 + step * 0.003
+    } else {
+        (game.fx.time * 3.4).sin() * 0.004
+    };
+    let lean_x = if game.walking { facing * 0.007 } else { 0.0 };
+    let lean_y = if game.walking { game.facing_y * 0.006 } else { 0.0 };
+    let squash = if game.walking {
+        1.0 + step.abs() * 0.09
+    } else {
+        1.0
+    };
+    let stretch = if game.walking {
+        1.0 - step.abs() * 0.07
+    } else {
+        1.0
+    };
+    (bob, lean_x, lean_y, squash, stretch)
+}
+
+/// Yaw so archive vika faces island walk direction (map +X right, +Y down → world XZ).
+fn island_face_yaw(facing_x: f32, facing_y: f32) -> f32 {
+    let wx = facing_x;
+    let wz = facing_y;
+    let yaw = if wx.abs() < 1e-4 && wz.abs() < 1e-4 {
+        std::f32::consts::FRAC_PI_2
+    } else {
+        wx.atan2(wz)
+    };
+    // Models face +Z in Blender export; +PI matches combat board nudge.
+    yaw + std::f32::consts::PI
+}
+
+#[cfg(test)]
+mod island_party_tests {
+    use super::island_face_yaw;
+
+    #[test]
+    fn face_yaw_points_with_walk_dir() {
+        let right = island_face_yaw(1.0, 0.0);
+        let left = island_face_yaw(-1.0, 0.0);
+        let turn = (right - left).abs();
+        assert!(
+            (turn - std::f32::consts::PI).abs() < 0.05,
+            "left/right should be π apart, got {turn}"
+        );
+        let down = island_face_yaw(0.0, 1.0);
+        let up = island_face_yaw(0.0, -1.0);
+        let vturn = (down - up).abs();
+        assert!(
+            (vturn - std::f32::consts::PI).abs() < 0.05,
+            "up/down should be π apart, got {vturn}"
+        );
     }
 }
