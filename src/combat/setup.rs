@@ -226,6 +226,16 @@ pub fn create_battle(enc: &EncounterDef, party: &[String], seed: u32) -> CombatS
             terrain.push((h1, Terrain::Water));
         }
     }
+    // Fill every map cell so the hunt board draws as ground, not a black void
+    // between sparse mud/ruin/water (draw_board iterates combat.terrain only).
+    for r in 0..rows {
+        for q in 0..cols {
+            let h = Axial::new(q, r);
+            if !taken(&terrain, h) {
+                terrain.push((h, Terrain::Grass));
+            }
+        }
+    }
 
     let mut state = CombatState {
         id: enc.id.into(),
@@ -378,5 +388,22 @@ mod tests {
         assert_eq!(s.units.iter().filter(|u| u.side == Side::Enemy).count(), 3);
         assert!(!s.units.iter().any(|u| u.template_id == "raki"));
         assert!(!s.support_raki);
+    }
+
+    #[test]
+    fn terrain_covers_every_map_hex() {
+        let enc = catalog::encounter("doga-yoma").unwrap();
+        let s = create_battle(enc, &["clare".into()], 7);
+        assert_eq!(s.terrain.len(), (s.cols * s.rows) as usize);
+        for q in 0..s.cols {
+            for r in 0..s.rows {
+                assert!(
+                    s.terrain.iter().any(|(h, _)| hex_eq(*h, Axial::new(q, r))),
+                    "missing terrain at ({q},{r})"
+                );
+            }
+        }
+        assert!(s.terrain.iter().any(|(_, t)| *t == Terrain::Grass));
+        assert!(s.terrain.iter().any(|(_, t)| *t == Terrain::Ruin));
     }
 }
