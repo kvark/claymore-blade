@@ -5,6 +5,7 @@ pub enum FightClip {
     Idle,
     Ready,
     Slash,
+    Flash,
     Lunge,
     Guard,
     Wait,
@@ -18,6 +19,7 @@ impl FightClip {
             Self::Idle => 0.0,
             Self::Ready => 0.55,
             Self::Slash => 0.42,
+            Self::Flash => 0.30,
             Self::Lunge => 0.36,
             Self::Guard => 0.55,
             Self::Wait => 0.60,
@@ -86,6 +88,18 @@ mod tests {
         assert!(u > 0.3 && u < 0.7);
         bank.tick(1.0);
         let (c, _) = bank.of("clare", 1.0);
+        assert_eq!(c, FightClip::Idle);
+    }
+
+    #[test]
+    fn flash_is_fast_and_distinct() {
+        assert!(FightClip::Flash.duration() < FightClip::Slash.duration());
+        let mut bank = ClipBank::default();
+        bank.play("clare", FightClip::Flash, 0.0);
+        let (c, _) = bank.of("clare", 0.05);
+        assert_eq!(c, FightClip::Flash);
+        bank.tick(0.35);
+        let (c, _) = bank.of("clare", 0.35);
         assert_eq!(c, FightClip::Idle);
     }
 }

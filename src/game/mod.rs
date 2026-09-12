@@ -412,4 +412,126 @@ mod tests {
             "Digit3 must pick_skill_slot(4), not hardcode aimed"
         );
     }
+
+    #[test]
+    fn flash_clip_and_outcome_floaters_on_resolve() {
+        use crate::combat::{core_hex, legal_targets, PlayerAction, Side};
+        use crate::hex::hex_eq;
+        use crate::fx::FightClip;
+
+        let mut g = Game::new();
+        g.world = world::new_world();
+        let enc = catalog::encounter("doga-yoma").expect("doga-yoma");
+        g.begin_battle(enc);
+        // Force Clare's turn and park her adjacent to a yoma.
+        let combat = g.combat.as_mut().unwrap();
+        let clare_turn = combat
+            .order
+            .iter()
+            .position(|id| id == "clare")
+            .expect("clare");
+        combat.turn = clare_turn;
+        let prey = combat
+            .units
+            .iter()
+            .find(|u| u.side == Side::Enemy && !u.dead)
+            .cloned()
+            .expect("yoma");
+        let prey_hex = core_hex(&prey);
+        if let Some(c) = combat.units.iter_mut().find(|u| u.id == "clare") {
+            let n = crate::hex::hex_neighbors(prey_hex)[0];
+            c.origin = n;
+            c.ap = 3;
+            c.trans = 50; // Flash needs 40 trans
+            c.yoki = 20;
+        }
+        let targets = legal_targets(g.combat.as_ref().unwrap(), "clare", "flash");
+        assert!(
+            targets.iter().any(|h| hex_eq(*h, prey_hex)),
+            "flash should reach adjacent prey"
+        );
+        g.combat_act(PlayerAction::Skill {
+            id: "flash".into(),
+            hex: prey_hex,
+        });
+        let clip = g.fx.clip_of("clare").0;
+        // AI may overwrite with Hurt after Clare's resolve; never reuse Cut Slash.
+        assert_ne!(clip, FightClip::Slash, "Flash must not reuse the Cut slash clip");
+        assert!(
+            matches!(clip, FightClip::Flash | FightClip::Hurt | FightClip::Idle | FightClip::Guard),
+            "unexpected post-flash clip {clip:?}"
+        );
+        // Direct play path: juice arms Flash for the skill id.
+        let mut fx = crate::fx::Fx::default();
+        fx.play_clip("clare", FightClip::Flash);
+        assert_eq!(fx.clip_of("clare").0, FightClip::Flash);
+        assert!(
+            g.fx.flash > 0.0 || !g.fx.bursts.is_empty(),
+            "Flash should leave a silver burst"
+        );
+        let words = ["MISS", "GLANCE", "BLOCKED", "SOLID"];
+        let hit_readout = g.fx.floaters.iter().any(|f| {
+            f.plate && words.iter().any(|w| f.text.starts_with(w))
+        });
+        // Cut path for comparison: force a resolve that logs an outcome.
+        // Flash resolve above should already have produced miss/glance/blocked/solid
+        // (or empty-air is unlikely when adjacent). If RNG missed every strike cell,
+        // still accept MISS.
+        assert!(
+            hit_readout,
+            "expected plated MISS/GLANCE/BLOCKED/SOLID floater, got {:?}",
+            g.fx.floaters.iter().map(|f| &f.text).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn cut_resolve_emits_plated_outcome_word() {
+        use crate::combat::{core_hex, legal_targets, PlayerAction, Side};
+        use crate::hex::hex_eq;
+
+        let mut g = Game::new();
+        g.world = world::new_world();
+        let enc = catalog::encounter("doga-yoma").expect("doga-yoma");
+        g.begin_battle(enc);
+        let combat = g.combat.as_mut().unwrap();
+        let clare_turn = combat.order.iter().position(|id| id == "clare").unwrap();
+        combat.turn = clare_turn;
+        let prey = combat
+            .units
+            .iter()
+            .find(|u| u.side == Side::Enemy && !u.dead)
+            .cloned()
+            .unwrap();
+        let prey_hex = core_hex(&prey);
+        if let Some(c) = combat.units.iter_mut().find(|u| u.id == "clare") {
+            c.origin = crate::hex::hex_neighbors(prey_hex)[0];
+            c.ap = 2;
+        }
+        assert!(legal_targets(g.combat.as_ref().unwrap(), "clare", "cut")
+            .iter()
+            .any(|h| hex_eq(*h, prey_hex)));
+        g.combat_act(PlayerAction::Skill {
+            id: "cut".into(),
+            hex: prey_hex,
+        });
+        let floater = g.fx.floaters.iter().find(|f| {
+            f.plate
+                && (f.text.starts_with("MISS")
+                    || f.text.starts_with("GLANCE")
+                    || f.text.starts_with("BLOCKED")
+                    || f.text.starts_with("SOLID"))
+        });
+        assert!(
+            floater.is_some(),
+            "Cut resolve must plate an outcome word, got {:?}",
+            g.fx.floaters.iter().map(|f| &f.text).collect::<Vec<_>>()
+        );
+        // No raw HP-only soup digits without a word.
+        assert!(
+            g.fx.floaters.iter().all(|f| {
+                !f.text.chars().all(|c| c.is_ascii_digit())
+            }),
+            "raw digit floaters are HP soup"
+        );
+    }
 }

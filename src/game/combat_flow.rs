@@ -157,6 +157,9 @@ impl Game {
                 PlayerAction::Skill { id: skill, .. } if skill == "guard" => {
                     self.fx.play_clip(id, crate::fx::FightClip::Guard)
                 }
+                PlayerAction::Skill { id: skill, .. } if skill == "flash" => {
+                    self.fx.play_clip(id, crate::fx::FightClip::Flash)
+                }
                 PlayerAction::Skill { .. } => self.fx.play_clip(id, crate::fx::FightClip::Slash),
             }
         }
@@ -172,6 +175,8 @@ impl Game {
                     let q = self.hex_screen(*target);
                     if id == "guard" {
                         self.fx.emit_guard(p[0], p[1]);
+                    } else if id == "flash" {
+                        self.fx.emit_flash_burst(q[0], q[1]);
                     } else {
                         self.fx.emit_hit(q[0], q[1], 0, "windup");
                     }
@@ -228,24 +233,46 @@ impl Game {
                 self.fx.emit_raise(p[0], p[1]);
             }
         }
-        let kinds: Vec<String> = self
+        let kinds: Vec<(String, String)> = self
             .combat
             .as_ref()
             .map(|c| {
+                let n = c.log.len().saturating_sub(log_len).min(8);
                 c.log
                     .iter()
-                    .take(c.log.len().saturating_sub(log_len).min(8))
-                    .map(|l| format!("{}|{}", l.kind, l.text))
+                    .rev()
+                    .take(n)
+                    .map(|l| (l.kind.clone(), l.text.clone()))
                     .collect()
             })
             .unwrap_or_default();
-        for line in kinds {
-            if line.starts_with("miss|") {
-                audio::play("miss");
-            } else if line.contains("catches") {
-                audio::play("block");
-            } else if line.starts_with("sever|") {
-                audio::play("chop");
+        for (kind, text) in kinds.into_iter().rev() {
+            let dmg = parse_dealt(&text);
+            let def_hex = self
+                .combat
+                .as_ref()
+                .and_then(|c| find_defender_hex(c, &text));
+            let pos = def_hex
+                .map(|h| self.hex_screen(h))
+                .unwrap_or([0.50, 0.42]);
+            match kind.as_str() {
+                "miss" => {
+                    audio::play("miss");
+                    self.fx.emit_hit(pos[0], pos[1], 0, "miss");
+                    self.fx.emit_outcome(pos[0], pos[1] - 0.02, "miss", 0);
+                }
+                "glance" => {
+                    self.fx.emit_outcome(pos[0], pos[1] - 0.02, "glance", dmg);
+                }
+                "blocked" => {
+                    audio::play("block");
+                    self.fx.emit_outcome(pos[0], pos[1] - 0.02, "blocked", dmg);
+                }
+                "solid" => {
+                    self.fx.emit_outcome(pos[0], pos[1] - 0.02, "solid", dmg);
+                }
+                "sever" => audio::play("chop"),
+                _ => {}
             }
         }
     }
@@ -302,4 +329,27 @@ impl Game {
         self.combat = None;
         self.persist();
     }
+}
+
+
+fn parse_dealt(text: &str) -> i32 {
+    text.rsplit_once(" for ")
+        .and_then(|(_, rest)| rest.trim().trim_end_matches('.').parse().ok())
+        .unwrap_or(0)
+}
+
+fn find_defender_hex(combat: &crate::combat::CombatState, text: &str) -> Option<Axial> {
+    let mut best: Option<(usize, Axial)> = None;
+    for u in &combat.units {
+        if let Some(pos) = text.find(&u.name) {
+            if pos == 0 {
+                continue; // leading attacker name
+            }
+            let len = u.name.len();
+            if best.map(|(l, _)| len > l).unwrap_or(true) {
+                best = Some((len, core_hex(u)));
+            }
+        }
+    }
+    best.map(|(_, hex)| hex)
 }
