@@ -77,37 +77,90 @@ impl Renderer {
             let (x, z) = axial_to_world_yaw(cell, size, yaw);
             let acting = actor.map(|a| a.id == u.id).unwrap_or(false);
             let (clip, clip_u) = game.fx.clip_of(&u.id);
-            let bones = pose_fighter(&PoseInput {
-                x,
-                z,
-                size: if u.template_id == "raki" { size * 0.72 } else { size },
-                facing: u.facing,
-                cam_yaw: yaw,
-                time: t + (u.id.bytes().fold(0u32, |a, b| a.wrapping_add(b as u32)) as f32) * 0.07,
-                color: u.color,
-                side: u.side,
-                acting,
-                hurt: hurt && acting,
-                trans: u.trans,
-                clip,
-                clip_u,
-            });
-            let glow = bones[1].glow;
-            rc.bind_vertex(0, self.fighter.into());
-            rc.bind(
-                1,
-                &HuntDraw {
-                    locals: HuntLocal {
-                        world: [0.0, 0.0, 0.0, 1.0],
-                        color: [u.color[0], u.color[1], u.color[2], 1.0],
-                        pose: [1.0, 0.0, 0.0, glow],
-                        joints: joint_palette(&bones),
+            let unit_size = if u.template_id == "raki" {
+                size * 0.72
+            } else {
+                size
+            };
+            let glow = ((u.trans as f32) / 100.0).clamp(0.0, 1.0) * 0.55
+                + if acting { 0.25 } else { 0.0 };
+            // Prefer archive GLB: Clare/fighters → vika, yoma/enemies → valefor.
+            let archive = archive_mesh_for(self, &u.template_id, u.side);
+            if let Some((buf, count)) = archive {
+                let face = (u.facing.rem_euclid(6) as f32) * std::f32::consts::FRAC_PI_3
+                    + (yaw as f32) * std::f32::consts::FRAC_PI_2;
+                // Models face +Z in Blender export; nudge so they look along hex facing.
+                let face = face + std::f32::consts::PI;
+                let scale = unit_size * 0.85;
+                let bob = if acting {
+                    (t * 5.5).sin() * unit_size * 0.02
+                } else {
+                    (t * 3.1).sin() * unit_size * 0.01
+                };
+                rc.bind_vertex(0, buf.into());
+                rc.bind(
+                    1,
+                    &HuntDraw {
+                        locals: HuntLocal {
+                            world: [x, bob, z, scale],
+                            color: [u.color[0], u.color[1], u.color[2], scale],
+                            pose: [face.cos(), face.sin(), 0.0, glow],
+                            joints: identity_palette(),
+                        },
                     },
-                },
-            );
-            rc.draw(0, self.fighter_count, 0, 1);
+                );
+                rc.draw(0, count, 0, 1);
+            } else {
+                let bones = pose_fighter(&PoseInput {
+                    x,
+                    z,
+                    size: unit_size,
+                    facing: u.facing,
+                    cam_yaw: yaw,
+                    time: t
+                        + (u.id.bytes().fold(0u32, |a, b| a.wrapping_add(b as u32)) as f32) * 0.07,
+                    color: u.color,
+                    side: u.side,
+                    acting,
+                    hurt: hurt && acting,
+                    trans: u.trans,
+                    clip,
+                    clip_u,
+                });
+                let glow = bones[1].glow;
+                rc.bind_vertex(0, self.fighter.into());
+                rc.bind(
+                    1,
+                    &HuntDraw {
+                        locals: HuntLocal {
+                            world: [0.0, 0.0, 0.0, 1.0],
+                            color: [u.color[0], u.color[1], u.color[2], 1.0],
+                            pose: [1.0, 0.0, 0.0, glow],
+                            joints: joint_palette(&bones),
+                        },
+                    },
+                );
+                rc.draw(0, self.fighter_count, 0, 1);
+            }
             rc.bind_vertex(0, self.prism.into());
         }
+    }
+}
+
+fn archive_mesh_for<'a>(
+    r: &'a Renderer,
+    template_id: &str,
+    side: Side,
+) -> Option<(gpu::Buffer, u32)> {
+    match template_id {
+        "clare" | "miria" | "helen" | "deneve" => r.vika,
+        "yoma" | "yoma_stretch" => r.valefor,
+        "raki" => None, // keep procedural kid
+        "ophelia" | "worm" => r.valefor,
+        _ => match side {
+            Side::Player => r.vika,
+            Side::Enemy => r.valefor,
+        },
     }
 }
 

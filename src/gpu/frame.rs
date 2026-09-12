@@ -95,6 +95,12 @@ impl Renderer {
         context.destroy_sampler(self.pixel);
         context.destroy_buffer(self.prism);
         context.destroy_buffer(self.fighter);
+        if let Some((buf, _)) = self.vika.take() {
+            context.destroy_buffer(buf);
+        }
+        if let Some((buf, _)) = self.valefor.take() {
+            context.destroy_buffer(buf);
+        }
         context.destroy_buffer(self.quad);
         context.destroy_render_pipeline(&mut self.hunt);
         context.destroy_render_pipeline(&mut self.flat);
