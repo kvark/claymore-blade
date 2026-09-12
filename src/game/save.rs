@@ -7,6 +7,24 @@ pub(super) fn load_save() -> Option<Persist> {
     serde_json::from_str(&raw).ok()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn save_path() -> std::path::PathBuf {
+    #[cfg(test)]
+    {
+        thread_local! {
+            static PATH: std::path::PathBuf = {
+                let id = std::thread::current().id();
+                std::env::temp_dir().join(format!("claymore-test-save-{id:?}.json"))
+            };
+        }
+        PATH.with(|p| p.clone())
+    }
+    #[cfg(not(test))]
+    {
+        std::path::PathBuf::from("claymore.save.json")
+    }
+}
+
 pub(super) fn read_save() -> Option<String> {
     #[cfg(target_arch = "wasm32")]
     {
@@ -16,7 +34,7 @@ pub(super) fn read_save() -> Option<String> {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        std::fs::read_to_string("claymore.save.json").ok()
+        std::fs::read_to_string(save_path()).ok()
     }
 }
 
@@ -31,6 +49,6 @@ pub(super) fn write_save(s: &str) {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let _ = std::fs::write("claymore.save.json", s);
+        let _ = std::fs::write(save_path(), s);
     }
 }
