@@ -178,6 +178,10 @@ impl ApplicationHandler for App {
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key {
+                    // OS key-repeat must not re-fire Esc quit / combat Wait / skills.
+                    if event.repeat {
+                        return;
+                    }
                     if code == KeyCode::Escape && event.state == ElementState::Pressed {
                         #[cfg(not(target_arch = "wasm32"))]
                         if self.game.mode == crate::game::Mode::Title && self.game.esc_arm > 0.0 {
@@ -225,7 +229,7 @@ impl ApplicationHandler for App {
                     MouseScrollDelta::LineDelta(_, y) => y,
                     MouseScrollDelta::PixelDelta(p) => p.y as f32 * 0.04,
                 };
-                self.game.ui.zoom = (self.game.ui.zoom * (1.0 + dy * 0.08)).clamp(0.55, 2.2);
+                self.game.ui.zoom = crate::game::clamp_combat_zoom(self.game.ui.zoom * (1.0 + dy * 0.08));
             }
             WindowEvent::RedrawRequested => self.redraw(),
             _ => {}

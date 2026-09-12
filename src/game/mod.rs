@@ -67,6 +67,15 @@ pub struct Persist {
 }
 
 
+/// Combat wheel-zoom floor (playtest: 0.55 overshoots into tiny tiles).
+pub const COMBAT_ZOOM_MIN: f32 = 0.7;
+/// Combat wheel-zoom ceiling (playtest: 2.2 clips huge tiles).
+pub const COMBAT_ZOOM_MAX: f32 = 1.55;
+
+pub fn clamp_combat_zoom(zoom: f32) -> f32 {
+    zoom.clamp(COMBAT_ZOOM_MIN, COMBAT_ZOOM_MAX)
+}
+
 /// Island walk speed in normalized map units per second (~8–15s Doga→Pieta).
 pub const WORLD_WALK_SPEED: f32 = 0.055;
 /// World-hour advance per real second while walking.
@@ -283,6 +292,15 @@ impl Game {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clamp_combat_zoom_keeps_defaults() {
+        assert!(Ui::default().zoom >= COMBAT_ZOOM_MIN);
+        assert!(Ui::default().zoom <= COMBAT_ZOOM_MAX);
+        assert!((clamp_combat_zoom(0.4) - COMBAT_ZOOM_MIN).abs() < 1e-6);
+        assert!((clamp_combat_zoom(3.0) - COMBAT_ZOOM_MAX).abs() < 1e-6);
+        assert!((clamp_combat_zoom(1.18) - 1.18).abs() < 1e-6);
+    }
     use crate::catalog;
 
     #[test]
