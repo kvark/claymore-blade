@@ -54,13 +54,7 @@ impl Renderer {
         for (hex, terrain) in &combat.terrain {
             let height = terrain_height(*terrain, size);
             let (x, z) = axial_to_world_yaw(*hex, size, yaw);
-            // Slightly lifted base luminances so software Vulkan still reads ground.
-            let mut color = match terrain {
-                Terrain::Water => [0.12, 0.15, 0.18],
-                Terrain::Mud => [0.26, 0.19, 0.14],
-                Terrain::Ruin => [0.30, 0.28, 0.25],
-                Terrain::Grass => [0.18, 0.20, 0.15],
-            };
+            let mut color = terrain_tint(*terrain);
             if preview.iter().any(|h| h.q == hex.q && h.r == hex.r) {
                 color = if skill_on {
                     [0.42, 0.14, 0.12]
@@ -235,6 +229,17 @@ pub(super) fn unit_has_archive_mesh(r: &Renderer, template_id: &str, side: Side)
     archive_mesh_for(r, template_id, side).is_some()
 }
 
+/// Base albedo per terrain. Tuned so Lavapipe (software Vulkan) can tell types apart
+/// at a glance while staying in DESIGN.md Ink / Ash / Steel / Blood — no gold/purple.
+pub(super) fn terrain_tint(terrain: Terrain) -> [f32; 3] {
+    match terrain {
+        Terrain::Water => [0.05, 0.09, 0.18], // darker, bluer
+        Terrain::Mud => [0.36, 0.18, 0.08],   // browner earth
+        Terrain::Ruin => [0.38, 0.37, 0.39],  // cooler steel grey
+        Terrain::Grass => [0.10, 0.28, 0.09], // greener moss
+    }
+}
+
 #[cfg(test)]
 mod archive_scale_tests {
     use super::ArchiveKind;
@@ -250,6 +255,43 @@ mod archive_scale_tests {
     fn vika_scaled_larger_than_valefor() {
         assert!(archive_scale_mul(ArchiveKind::Vika) > archive_scale_mul(ArchiveKind::Valefor));
         assert!(archive_scale_mul(ArchiveKind::Vika) >= 1.2);
+    }
+}
+
+#[cfg(test)]
+mod terrain_tint_tests {
+    use super::terrain_tint;
+    use crate::combat::Terrain;
+
+    fn dist(a: [f32; 3], b: [f32; 3]) -> f32 {
+        let dr = a[0] - b[0];
+        let dg = a[1] - b[1];
+        let db = a[2] - b[2];
+        (dr * dr + dg * dg + db * db).sqrt()
+    }
+
+    #[test]
+    fn terrain_types_are_visibly_separated() {
+        let w = terrain_tint(Terrain::Water);
+        let m = terrain_tint(Terrain::Mud);
+        let r = terrain_tint(Terrain::Ruin);
+        let g = terrain_tint(Terrain::Grass);
+        // Pairwise RGB distance must clear Lavapipe wash-out (~0.08 was indistinguishable).
+        for (a, b, label) in [
+            (w, m, "water-mud"),
+            (w, r, "water-ruin"),
+            (w, g, "water-grass"),
+            (m, r, "mud-ruin"),
+            (m, g, "mud-grass"),
+            (r, g, "ruin-grass"),
+        ] {
+            assert!(dist(a, b) >= 0.18, "{label} too close: {}", dist(a, b));
+        }
+        assert!(g[1] > g[0] && g[1] > g[2], "grass should be greener");
+        assert!(m[0] > m[1] && m[0] > m[2], "mud should be browner (red-led)");
+        assert!((r[0] - r[1]).abs() < 0.04 && (r[1] - r[2]).abs() < 0.04, "ruin should be grey");
+        assert!(w[2] > w[0] && w[2] > w[1], "water should be bluer");
+        assert!(w[0] + w[1] + w[2] < g[0] + g[1] + g[2], "water darker than grass");
     }
 }
 
