@@ -391,4 +391,25 @@ mod tests {
         g.key(winit::keyboard::KeyCode::Escape, true);
         assert_eq!(g.mode, Mode::World);
     }
+
+    #[test]
+    fn digit3_selects_slot_skill_flash_for_clare() {
+        let mut g = Game::new();
+        g.world = world::new_world();
+        let enc = catalog::encounter("doga-yoma").expect("doga-yoma");
+        g.begin_battle(enc);
+        assert_eq!(g.mode, Mode::Combat);
+        let slot = g
+            .combat
+            .as_ref()
+            .and_then(|c| c.units.iter().find(|u| u.id == "clare"))
+            .and_then(|u| u.skills.get(4).map(|s| s.as_str()));
+        assert_eq!(slot, Some("flash"), "Clare skill[4] is the bar.slot chip");
+        g.key(winit::keyboard::KeyCode::Digit3, true);
+        assert_eq!(
+            g.ui.selected_skill.as_deref(),
+            Some("flash"),
+            "Digit3 must pick_skill_slot(4), not hardcode aimed"
+        );
+    }
 }
