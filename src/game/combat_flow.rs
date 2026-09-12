@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::audio;
+use crate::catalog;
 use crate::combat::{
     act, core_hex, current_unit, legal_moves, legal_targets, run_ai, PlayerAction, Side,
 };
@@ -273,6 +274,25 @@ impl Game {
                 }
                 "sever" => audio::play("chop"),
                 _ => {}
+            }
+        }
+        // One plated floater when the skill-slot gate first opens (Raise→Flash payoff).
+        if let Some(combat) = self.combat.as_ref() {
+            for u in &combat.units {
+                let Some(prev) = before.iter().find(|b| b.0 == u.id) else {
+                    continue;
+                };
+                let Some(slot_id) = u.skills.get(4) else {
+                    continue;
+                };
+                let Some(skill) = catalog::skill(slot_id) else {
+                    continue;
+                };
+                if prev.4 < skill.trans && u.trans >= skill.trans {
+                    let label = format!("{} READY", slot_id.to_ascii_uppercase());
+                    self.fx.emit_hint(0.58, 0.78, label);
+                    break;
+                }
             }
         }
     }
