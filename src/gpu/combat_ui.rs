@@ -84,10 +84,11 @@ impl Renderer {
             } else {
                 [0.92, 0.55, 0.48, 1.0]
             };
+            let portrait = [px, py, 0.08, 0.12];
             self.blit(
                 &mut rc,
                 self.tex(&u.portrait),
-                [px, py, 0.08, 0.12],
+                portrait,
                 tint,
             );
             if Some(u.id.as_str()) == current_unit(combat).map(|x| x.id.as_str()) {
@@ -98,6 +99,16 @@ impl Renderer {
                     [0.95, 0.82, 0.35, 0.55],
                 );
             }
+            let hp = portrait_hp_bar(portrait[0], portrait[1], portrait[2], portrait[3]);
+            self.bar(
+                &mut rc,
+                hp[0],
+                hp[1],
+                hp[2],
+                hp[3],
+                u.hp as f32 / u.max_hp.max(1) as f32,
+                BLOOD,
+            );
         }
         let bar = hud::combat_bar();
         self.blit_px(
@@ -201,5 +212,26 @@ impl Renderer {
             );
         }
         self.draw_fx(&mut rc, game);
+    }
+}
+
+/// Tiny blood HP bar under a board combat portrait (`[x,y,w,h]` normalized).
+pub(crate) fn portrait_hp_bar(px: f32, py: f32, pw: f32, ph: f32) -> [f32; 4] {
+    const BAR_H: f32 = 0.01;
+    const GAP: f32 = 0.002;
+    [px, py + ph + GAP, pw, BAR_H]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::portrait_hp_bar;
+
+    #[test]
+    fn portrait_hp_bar_sits_under_portrait() {
+        let r = portrait_hp_bar(0.1, 0.2, 0.08, 0.12);
+        assert!((r[0] - 0.1).abs() < 1e-6);
+        assert!((r[1] - 0.322).abs() < 1e-6);
+        assert!((r[2] - 0.08).abs() < 1e-6);
+        assert!(r[3] >= 0.008 && r[3] <= 0.012);
     }
 }

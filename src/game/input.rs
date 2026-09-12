@@ -77,8 +77,13 @@ impl Game {
 
     pub fn key(&mut self, code: winit::keyboard::KeyCode, down: bool) {
         if down {
-            if !self.keys.contains(&code) {
+            // Edge-trigger actions; key-repeat must not re-fire Wait / skills / Raise.
+            let fresh = !self.keys.contains(&code);
+            if fresh {
                 self.keys.push(code);
+            }
+            if !fresh {
+                return;
             }
             match code {
                 winit::keyboard::KeyCode::Escape => {
@@ -129,23 +134,35 @@ impl Game {
                         }
                     }
                 }
-                winit::keyboard::KeyCode::Digit1 => {
-                    audio::click();
-                    self.ui.selected_skill = Some("cut".into());
+                winit::keyboard::KeyCode::Digit1 | winit::keyboard::KeyCode::Numpad1 => {
+                    if self.mode == Mode::Combat {
+                        audio::click();
+                        self.ui.selected_skill = Some("cut".into());
+                    }
                 }
-                winit::keyboard::KeyCode::Digit2 => {
-                    audio::click();
-                    self.ui.selected_skill = Some("guard".into());
+                winit::keyboard::KeyCode::Digit2 | winit::keyboard::KeyCode::Numpad2 => {
+                    if self.mode == Mode::Combat {
+                        audio::click();
+                        self.ui.selected_skill = Some("guard".into());
+                    }
                 }
-                winit::keyboard::KeyCode::Digit3 => {
-                    audio::click();
-                    self.ui.selected_skill = Some("aimed".into());
+                winit::keyboard::KeyCode::Digit3 | winit::keyboard::KeyCode::Numpad3 => {
+                    if self.mode == Mode::Combat {
+                        audio::click();
+                        self.ui.selected_skill = Some("aimed".into());
+                    }
                 }
                 winit::keyboard::KeyCode::KeyG => {
-                    audio::click();
-                    self.ui.selected_skill = Some("guard".into());
+                    if self.mode == Mode::Combat {
+                        audio::click();
+                        self.ui.selected_skill = Some("guard".into());
+                    }
                 }
-                winit::keyboard::KeyCode::KeyT => self.combat_act(PlayerAction::Raise),
+                winit::keyboard::KeyCode::KeyT => {
+                    if self.mode == Mode::Combat {
+                        self.combat_act(PlayerAction::Raise);
+                    }
+                }
                 winit::keyboard::KeyCode::KeyQ => {
                     if self.mode == Mode::Combat {
                         self.ui.yaw = (self.ui.yaw + 3) % 4; // 90° CCW
