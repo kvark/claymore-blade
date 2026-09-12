@@ -63,7 +63,7 @@ impl Renderer {
                 };
             }
             if game.ui.hover == Some(*hex) {
-                color = [0.48, 0.40, 0.22];
+                color = [0.52, 0.48, 0.40]; // dust/ash, not gold
             }
             rc.bind(
                 1,
@@ -308,8 +308,9 @@ fn combat_lamps(
     };
     let (lamp0, lamp0c) = if let Some(u) = actor {
         let p = place(core_hex(u), size * 0.55);
-        let gold = [1.0, 0.78, 0.42, size * 3.2];
-        (p, gold)
+        // Ash/Steel lift — gold washed terrain types together on Lavapipe.
+        let ash = [0.82, 0.78, 0.68, size * 2.2];
+        (p, ash)
     } else {
         ([0.0, size, 0.0, 0.0], [0.0, 0.0, 0.0, size])
     };
