@@ -196,29 +196,68 @@ impl Fx {
             }
             self.spawn_burst(x, y, 0.14, "kenney/fx/scorch.png", [0.2, 0.08, 0.06, 0.7], 0.8);
         }
-        if dmg > 0 {
-            self.floaters.push(Floater {
-                x: x - 0.01,
-                y: y - 0.04,
-                vy: -0.12,
-                life: 0.85,
-                max: 0.85,
-                text: format!("{dmg}"),
-                tint: [0.92, 0.22, 0.16, 1.0],
-                plate: false,
-            });
-        } else if kind == "miss" {
-            self.floaters.push(Floater {
-                x: x - 0.02,
-                y: y - 0.04,
-                vy: -0.08,
-                life: 0.6,
-                max: 0.6,
-                text: "MISS".into(),
-                tint: [0.72, 0.7, 0.62, 1.0],
-                plate: false,
-            });
+        let _ = dmg; // outcome words come from emit_outcome (not HP soup)
+    }
+
+    /// Discrete hit-table readout: MISS / GLANCE / BLOCKED / SOLID (plated).
+    pub fn emit_outcome(&mut self, x: f32, y: f32, kind: &str, dmg: i32) {
+        let (text, tint, life) = match kind {
+            "miss" => (
+                "MISS".to_string(),
+                [0.92, 0.90, 0.78, 1.0],
+                1.7,
+            ),
+            "glance" => (
+                if dmg > 0 {
+                    format!("GLANCE {dmg}")
+                } else {
+                    "GLANCE".into()
+                },
+                [0.82, 0.78, 0.55, 1.0],
+                1.25,
+            ),
+            "blocked" | "block" => (
+                if dmg > 0 {
+                    format!("BLOCKED {dmg}")
+                } else {
+                    "BLOCKED".into()
+                },
+                [0.72, 0.78, 0.88, 1.0],
+                1.3,
+            ),
+            "solid" | "hit" | "death" => (
+                if dmg > 0 {
+                    format!("SOLID {dmg}")
+                } else {
+                    "SOLID".into()
+                },
+                [0.95, 0.55, 0.28, 1.0],
+                1.35,
+            ),
+            _ => return,
+        };
+        self.floaters.push(Floater {
+            x: x - 0.03,
+            y: y - 0.05,
+            vy: if kind == "miss" { -0.035 } else { -0.05 },
+            life,
+            max: life,
+            text,
+            tint,
+            plate: true,
+        });
+    }
+
+    /// Silver Quicksword burst (Flash clip companion).
+    pub fn emit_flash_burst(&mut self, x: f32, y: f32) {
+        self.spawn_burst(x, y, 0.14, "kenney/fx/light.png", [0.85, 0.90, 0.98, 0.85], 0.28);
+        self.spawn_burst(x, y, 0.10, "kenney/fx/slash.png", [0.78, 0.82, 0.92, 0.9], 0.22);
+        for _ in 0..8 {
+            self.spawn_p(x, y, 0.03, "kenney/fx/spark.png", [0.88, 0.92, 1.0, 0.95], 0.35);
         }
+        self.flash = (self.flash + 0.22).min(0.5);
+        self.add_trauma(0.18);
+        self.hitstop = self.hitstop.max(0.04);
     }
 
     pub fn emit_raise(&mut self, x: f32, y: f32) {
@@ -357,8 +396,9 @@ mod tests {
         let mut fx = Fx::default();
         fx.emit_hit(0.5, 0.5, 12, "hit");
         assert!(!fx.particles.is_empty());
-        assert!(!fx.floaters.is_empty());
         assert!(fx.trauma > 0.0);
+        fx.emit_outcome(0.5, 0.5, "solid", 12);
+        assert!(fx.floaters.iter().any(|f| f.text.starts_with("SOLID") && f.plate));
     }
 
     #[test]
@@ -367,7 +407,35 @@ mod tests {
         fx.emit_hint(0.4, 0.5, "WALK CLOSER");
         assert!(fx.floaters.iter().all(|f| f.plate));
         fx.emit_hit(0.5, 0.5, 4, "hit");
-        assert!(fx.floaters.iter().any(|f| !f.plate && f.text == "4"));
+        // Hit VFX no longer dumps raw HP digits; outcomes are plated words.
+        assert!(fx.floaters.iter().all(|f| f.plate));
+    }
+
+    #[test]
+    fn outcome_floaters_are_plated_words() {
+        let mut fx = Fx::default();
+        fx.emit_outcome(0.4, 0.5, "miss", 0);
+        fx.emit_outcome(0.4, 0.5, "glance", 3);
+        fx.emit_outcome(0.4, 0.5, "blocked", 2);
+        fx.emit_outcome(0.4, 0.5, "solid", 14);
+        let texts: Vec<_> = fx.floaters.iter().map(|f| f.text.as_str()).collect();
+        assert!(texts.iter().any(|t| *t == "MISS"));
+        assert!(texts.iter().any(|t| *t == "GLANCE 3"));
+        assert!(texts.iter().any(|t| *t == "BLOCKED 2"));
+        assert!(texts.iter().any(|t| *t == "SOLID 14"));
+        assert!(fx.floaters.iter().all(|f| f.plate));
+        // Miss should linger long enough to read.
+        let miss = fx.floaters.iter().find(|f| f.text == "MISS").unwrap();
+        assert!(miss.life >= 1.5);
+    }
+
+    #[test]
+    fn flash_burst_is_silver() {
+        let mut fx = Fx::default();
+        fx.emit_flash_burst(0.5, 0.5);
+        assert!(fx.flash > 0.0);
+        assert!(!fx.bursts.is_empty());
+        assert!(fx.bursts.iter().any(|b| b.tint[2] > b.tint[0] * 0.9));
     }
 
     #[test]
@@ -378,5 +446,7 @@ mod tests {
         fx.time = 1.0;
         fx.clips.tick(fx.time);
         assert_eq!(fx.clip_of("clare").0, FightClip::Idle);
+        fx.play_clip("clare", FightClip::Flash);
+        assert_eq!(fx.clip_of("clare").0, FightClip::Flash);
     }
 }

@@ -115,17 +115,17 @@ pub(crate) fn apply_damage(
     if state.units[idx].dead {
         return;
     }
-    let label = match kind {
-        HitKind::Miss => "misses",
-        HitKind::Glance => "glances",
-        HitKind::Blocked => "is blocked",
-        HitKind::Solid => "hits",
+    let (label, log_kind) = match kind {
+        HitKind::Miss => ("misses", "miss"),
+        HitKind::Glance => ("glances", "glance"),
+        HitKind::Blocked => ("is blocked", "blocked"),
+        HitKind::Solid => ("hits", "solid"),
     };
     let name = state.units[idx].name.clone();
     if dmg <= 0 {
         push_log(
             state,
-            "miss",
+            log_kind,
             format!("{} {} {}.", from, label, name),
         );
         return;
@@ -159,7 +159,7 @@ pub(crate) fn apply_damage(
 
     push_log(
         state,
-        "hit",
+        log_kind,
         format!("{} {} {} for {}.", from, label, name, dealt),
     );
     if died {

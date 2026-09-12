@@ -158,6 +158,28 @@ fn apply_clip(
                 bones[2].yaw += k * 0.12;
             }
         }
+
+        FightClip::Flash => {
+            // Quicksword: blink step-in + silver blade burst — not a Cut arm-whip.
+            let k = pulse(u, 0.12);
+            let step = k * s * (0.30 + if enemy { 0.06 } else { 0.0 });
+            for b in bones.iter_mut() {
+                b.x += fwd_x * step;
+                b.z += fwd_z * step;
+            }
+            bones[0].y -= k * s * 0.018;
+            // Thrust the blade forward with a hard silver flare (glow), little yaw whip.
+            bones[3].x += fwd_x * k * s * 0.10;
+            bones[3].z += fwd_z * k * s * 0.10;
+            bones[3].y += k * s * 0.05;
+            bones[3].lean -= k * 0.28;
+            bones[3].glow = (bones[3].glow + k * 1.15).min(1.4);
+            bones[1].glow = (bones[1].glow + k * 0.55).min(1.25);
+            bones[1].yaw += k * 0.18;
+            bones[4].x -= fwd_x * k * s * 0.04;
+            bones[4].z -= fwd_z * k * s * 0.04;
+        }
+
         FightClip::Lunge => {
             let k = pulse(u, 0.45);
             let reach = k * s * (0.20 + if enemy { 0.08 } else { 0.0 });
@@ -388,6 +410,7 @@ pub fn archive_joint_palette(p: &PoseInput) -> [[f32; 12]; JOINTS] {
     let (mx, my, mz, myaw) = match p.clip {
         FightClip::Slash if !enemy => (1.15, 1.08, 1.15, 1.45), // punch yaw for snap
         FightClip::Slash if enemy => (1.55, 1.40, 1.55, 1.20),  // stretch read
+        FightClip::Flash => (1.55, 1.20, 1.55, 0.85), // step-in read, soft yaw
         FightClip::Hurt => (1.50, 1.40, 1.50, 1.30),
         FightClip::Guard => (1.20, 1.45, 1.20, 1.25), // blade-up vertical read
         FightClip::Wait => (1.15, 1.35, 1.15, 1.15),  // lowered sword
@@ -604,5 +627,51 @@ mod tests {
         assert!(gdy > 0.02, "archive Guard should lift arm joint ty, got {gdy}");
         assert!(wdy < -0.01, "archive Wait should drop arm joint ty, got {wdy}");
         assert!(gdy > wdy + 0.04, "archive Guard/Wait arm heights must differ");
+    }
+
+    #[test]
+    fn flash_steps_in_not_slash_whip() {
+        let base = PoseInput {
+            x: 0.0, z: 0.0, size: 40.0, facing: 0, cam_yaw: 0, time: 0.0,
+            color: [1.0, 1.0, 1.0], side: Side::Player, acting: false, hurt: false, trans: 0,
+            clip: FightClip::Idle, clip_u: 0.0,
+        };
+        let idle = pose_fighter(&base);
+        let slash = pose_fighter(&PoseInput { clip: FightClip::Slash, clip_u: 0.20, ..base });
+        let flash = pose_fighter(&PoseInput { clip: FightClip::Flash, clip_u: 0.15, ..base });
+        let flash_dx = flash[0].x - idle[0].x;
+        let slash_dx = slash[0].x - idle[0].x;
+        assert!(
+            flash_dx.abs() > slash_dx.abs() + 1.0,
+            "Flash should step the body in farther than Cut whip, flash={flash_dx} slash={slash_dx}"
+        );
+        assert!(
+            flash[3].glow > slash[3].glow + 0.05,
+            "Flash blade should silver-flare harder than Cut, flash={} slash={}",
+            flash[3].glow,
+            slash[3].glow
+        );
+        let slash_yaw = (slash[3].yaw - idle[3].yaw).abs();
+        let flash_yaw = (flash[3].yaw - idle[3].yaw).abs();
+        assert!(
+            slash_yaw > flash_yaw + 0.2,
+            "Cut should yaw-whip more than Flash thrust, slash={slash_yaw} flash={flash_yaw}"
+        );
+    }
+
+    #[test]
+    fn archive_flash_palette_steps() {
+        let base = PoseInput {
+            x: 0.0, z: 0.0, size: 40.0, facing: 0, cam_yaw: 0, time: 0.0,
+            color: [1.0, 1.0, 1.0], side: Side::Player, acting: true, hurt: false, trans: 0,
+            clip: FightClip::Idle, clip_u: 0.0,
+        };
+        let idle = archive_joint_palette(&base);
+        let flash = archive_joint_palette(&PoseInput { clip: FightClip::Flash, clip_u: 0.15, ..base });
+        let slash = archive_joint_palette(&PoseInput { clip: FightClip::Slash, clip_u: 0.20, ..base });
+        // tx is index 3 in the 12-float affine
+        let fdx = (flash[0][3] - idle[0][3]).abs();
+        let sdx = (slash[0][3] - idle[0][3]).abs();
+        assert!(fdx > sdx + 0.01, "archive Flash root should translate more than Slash, f={fdx} s={sdx}");
     }
 }
