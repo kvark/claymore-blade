@@ -188,14 +188,6 @@ impl Renderer {
                 u.trans as f32 / 100.0,
                 trans_fill_tint(u.trans),
             );
-            self.text_tint(
-                &mut rc,
-                &trans_meter_label(u.trans),
-                0.33,
-                py + 0.044,
-                0.010,
-                ASH_TYPE,
-            );
         }
         let sel = game.ui.selected_skill.as_deref();
         // Larger ash glyphs on the bar only — inactive WAIT/RAISE were weak tan-on-tan.
@@ -256,6 +248,18 @@ impl Renderer {
             false,
             0.026,
         );
+        // BAR N BAND must sit above the button row (and after it in draw order) —
+        // previously py+0.044 ≈ 0.891 sat under WAIT/RAISE/GUARD plates.
+        if let Some(u) = current_unit(combat) {
+            self.text_tint(
+                &mut rc,
+                &trans_meter_label(u.trans),
+                0.33,
+                trans_meter_label_y(bar.wait.y),
+                0.011,
+                ASH_TYPE,
+            );
+        }
         let prompt_y = bar.wait.y - 0.028;
         self.prompt(&mut rc, "kenney/prompt/space.png", bar.wait.x + 0.03, prompt_y, 0.028);
         self.prompt(&mut rc, "kenney/prompt/1.png", bar.cut.x + 0.035, prompt_y, 0.024);
@@ -310,6 +314,11 @@ pub(crate) fn trans_meter_label(trans: i32) -> String {
     format!("BAR {} {}", t, trans_band(t).to_ascii_uppercase())
 }
 
+/// Normalized Y for the trans label: clear of the action-button tops (`button_y`).
+pub(crate) fn trans_meter_label_y(button_y: f32) -> f32 {
+    button_y - 0.040
+}
+
 /// Skill slot plate lights when unit trans meets the skill's gate (Flash ≥40).
 pub(crate) fn skill_slot_ready(unit_trans: i32, skill_trans: i32) -> bool {
     unit_trans >= skill_trans
@@ -333,7 +342,7 @@ pub(crate) fn mesh_hp_bar(cx: f32, cy: f32, bar_w: f32) -> [f32; 4] {
 mod tests {
     use super::{
         mesh_hp_bar, portrait_hp_bar, skill_slot_ready, trans_band, trans_fill_tint,
-        trans_meter_label,
+        trans_meter_label, trans_meter_label_y,
     };
 
     #[test]
@@ -371,6 +380,18 @@ mod tests {
         assert_eq!(trans_meter_label(23), "BAR 23 SILVER");
         assert_eq!(trans_meter_label(40), "BAR 40 EDGE");
         assert_eq!(trans_meter_label(8), "BAR 8 HUMAN");
+    }
+
+    #[test]
+    fn trans_meter_label_sits_above_action_buttons() {
+        // combat_bar wait.y is 0.865; old label used py+0.044 ≈ 0.891 (under plates).
+        let button_y = 0.865;
+        let y = trans_meter_label_y(button_y);
+        assert!(
+            y < button_y - 0.01,
+            "label y={y} must clear button tops at {button_y}"
+        );
+        assert!(y > button_y - 0.08, "label should stay on the combat panel strip");
     }
 
     #[test]
