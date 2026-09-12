@@ -271,6 +271,7 @@ impl Renderer {
         self.text(&mut rc, combat.title.as_str(), 0.02, 0.02, 0.014);
         self.text(&mut rc, "Q / E  ROTATE", 0.72, 0.02, 0.011);
         self.prompt(&mut rc, "kenney/prompt/esc.png", 0.92, 0.02, 0.04);
+        self.draw_turn_queue(&mut rc, combat);
         if game.esc_arm > 0.0 {
             self.text_tint(
                 &mut rc,
@@ -282,6 +283,69 @@ impl Renderer {
             );
         }
         self.draw_fx(&mut rc, game);
+    }
+
+    /// Compact initiative strip under the title — portraits + short names, current ringed.
+    pub(super) fn draw_turn_queue(
+        &self,
+        rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>,
+        combat: &CombatState,
+    ) {
+        let ids = queue_ids(&combat.order, combat.turn, &combat.units);
+        if ids.is_empty() {
+            return;
+        }
+        // Top edge, centered — clear of skill bar, trans meter, and clickable hexes.
+        const CHIP_W: f32 = 0.052;
+        const CHIP_H: f32 = 0.070;
+        const GAP: f32 = 0.010;
+        const Y: f32 = 0.048;
+        const MAX: usize = 8;
+        let show: Vec<&String> = ids.iter().take(MAX).collect();
+        let n = show.len() as f32;
+        let total_w = n * CHIP_W + (n - 1.0).max(0.0) * GAP;
+        let start_x = ((1.0 - total_w) * 0.5).max(0.02);
+        // Ink plate behind the strip (existing HUD language).
+        self.blit_px(
+            rc,
+            self.tex("kenney/ui/panel.png"),
+            [start_x - 0.012, Y - 0.010, total_w + 0.024, CHIP_H + 0.028],
+            [0.08, 0.06, 0.05, 0.88],
+        );
+        for (i, id) in show.iter().enumerate() {
+            let Some(u) = combat.units.iter().find(|u| u.id == **id) else {
+                continue;
+            };
+            let x = start_x + i as f32 * (CHIP_W + GAP);
+            let portrait = [x, Y + 0.006, CHIP_W, CHIP_H * 0.72];
+            if i == 0 {
+                // Same gold ring language as acting units on the board.
+                self.blit_px(
+                    rc,
+                    self.tex("kenney/ui/hex.png"),
+                    [x - 0.005, Y + 0.001, CHIP_W + 0.010, CHIP_H * 0.80],
+                    [0.95, 0.82, 0.35, 0.55],
+                );
+            }
+            let tint = if u.side == Side::Player {
+                [1.0, 1.0, 1.0, 1.0]
+            } else {
+                [0.92, 0.55, 0.48, 1.0]
+            };
+            self.blit(rc, self.tex(&u.portrait), portrait, tint);
+            let label = queue_chip_label(&u.name);
+            let glyph_h = 0.009;
+            let glyph_w = glyph_h * 0.7;
+            let nch = label.chars().count() as f32;
+            let text_w = if nch > 0.0 {
+                glyph_w * ((nch - 1.0) * 0.85 + 1.0)
+            } else {
+                0.0
+            };
+            let tx = x + (CHIP_W - text_w) * 0.5;
+            let ty = Y + CHIP_H * 0.78;
+            self.text_tint(rc, &label, tx, ty, glyph_h, ASH_TYPE);
+        }
     }
 }
 
@@ -324,6 +388,41 @@ pub(crate) fn skill_slot_ready(unit_trans: i32, skill_trans: i32) -> bool {
     unit_trans >= skill_trans
 }
 
+
+/// Living initiative queue starting at `turn` (wraps). Current actor first; dead skipped.
+pub(crate) fn queue_ids(order: &[String], turn: usize, units: &[crate::combat::Unit]) -> Vec<String> {
+    if order.is_empty() {
+        return Vec::new();
+    }
+    let n = order.len();
+    let start = turn % n;
+    let mut out = Vec::with_capacity(n);
+    for i in 0..n {
+        let id = &order[(start + i) % n];
+        let alive = units.iter().any(|u| u.id == *id && !u.dead);
+        if alive {
+            out.push(id.clone());
+        }
+    }
+    out
+}
+
+/// Compact chip label — short enough for the top-edge queue.
+pub(crate) fn queue_chip_label(name: &str) -> String {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return "?".into();
+    }
+    let mut out = String::new();
+    for (i, ch) in trimmed.chars().enumerate() {
+        if i >= 5 {
+            break;
+        }
+        out.push(ch.to_ascii_uppercase());
+    }
+    out
+}
+
 /// Tiny blood HP bar under a board combat portrait (`[x,y,w,h]` normalized).
 pub(crate) fn portrait_hp_bar(px: f32, py: f32, pw: f32, ph: f32) -> [f32; 4] {
     const BAR_H: f32 = 0.01;
@@ -341,9 +440,102 @@ pub(crate) fn mesh_hp_bar(cx: f32, cy: f32, bar_w: f32) -> [f32; 4] {
 #[cfg(test)]
 mod tests {
     use super::{
-        mesh_hp_bar, portrait_hp_bar, skill_slot_ready, trans_band, trans_fill_tint,
-        trans_meter_label, trans_meter_label_y,
+        mesh_hp_bar, portrait_hp_bar, queue_chip_label, queue_ids, skill_slot_ready, trans_band,
+        trans_fill_tint, trans_meter_label, trans_meter_label_y,
     };
+    use crate::combat::{Side, Stats, Unit};
+    use crate::hex::Axial;
+
+    fn stub_unit(id: &str, dead: bool) -> Unit {
+        Unit {
+            id: id.into(),
+            template_id: id.into(),
+            name: id.into(),
+            title: String::new(),
+            rank: 1,
+            side: Side::Player,
+            portrait: String::new(),
+            sprite: String::new(),
+            origin: Axial::new(0, 0),
+            facing: 0,
+            footprint: vec![Axial::new(0, 0)],
+            core_index: 0,
+            parts: Vec::new(),
+            hp: if dead { 0 } else { 10 },
+            max_hp: 10,
+            yoki: 0,
+            max_yoki: 0,
+            trans: 0,
+            ap: 2,
+            max_ap: 2,
+            stats: Stats {
+                s: 1,
+                a: 1,
+                c: 1,
+                p: 1,
+                w: 1,
+            },
+            skills: Vec::new(),
+            statuses: Vec::new(),
+            raised_trans: false,
+            next_hint: None,
+            color: [1.0, 1.0, 1.0],
+            dead,
+        }
+    }
+
+    #[test]
+    fn queue_ids_wraps_skips_dead_current_first() {
+        let order = vec![
+            "clare".into(),
+            "yoma-0".into(),
+            "raki".into(),
+            "yoma-1".into(),
+        ];
+        let units = vec![
+            stub_unit("clare", false),
+            stub_unit("yoma-0", true),
+            stub_unit("raki", false),
+            stub_unit("yoma-1", false),
+        ];
+        // turn at raki → raki, yoma-1, clare (dead yoma-0 skipped; wrap)
+        assert_eq!(
+            queue_ids(&order, 2, &units),
+            vec!["raki".to_string(), "yoma-1".into(), "clare".into()]
+        );
+        // turn at start → clare first, skip dead
+        assert_eq!(
+            queue_ids(&order, 0, &units),
+            vec!["clare".to_string(), "raki".into(), "yoma-1".into()]
+        );
+        // empty order
+        assert!(queue_ids(&[], 0, &units).is_empty());
+    }
+
+    #[test]
+    fn queue_chip_label_is_short_ash() {
+        assert_eq!(queue_chip_label("Clare"), "CLARE");
+        assert_eq!(queue_chip_label("Yoma"), "YOMA");
+        assert_eq!(queue_chip_label("Stretch"), "STRET");
+    }
+
+    #[test]
+    fn doga_queue_lists_living_from_current() {
+        use crate::combat::{act, create_battle, current_unit, PlayerAction};
+        let enc = crate::catalog::encounter("doga-yoma").unwrap();
+        let mut s = create_battle(enc, &["clare".into()], 7);
+        let q0 = queue_ids(&s.order, s.turn, &s.units);
+        assert!(!q0.is_empty());
+        assert_eq!(q0[0], current_unit(&s).unwrap().id);
+        assert!(q0.iter().all(|id| s.units.iter().any(|u| u.id == *id && !u.dead)));
+        // Clare typically leads Doga; after her Wait the next living id heads the queue.
+        if current_unit(&s).map(|u| u.id.as_str()) == Some("clare") {
+            act(&mut s, PlayerAction::Wait, true);
+            let q1 = queue_ids(&s.order, s.turn, &s.units);
+            assert_ne!(q1[0], "clare");
+            assert_eq!(q1[0], current_unit(&s).unwrap().id);
+        }
+    }
 
     #[test]
     fn trans_bands_match_design() {
