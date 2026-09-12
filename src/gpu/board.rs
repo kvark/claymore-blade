@@ -33,16 +33,33 @@ impl Renderer {
             },
         );
         rc.bind_vertex(0, self.prism.into());
+        // Dark ground disc under the prism grid so gaps / lavapipe void do not read as pure black.
+        let mid = crate::hex::Axial::new((combat.cols - 1) / 2, (combat.rows - 1) / 2);
+        let (gx, gz) = axial_to_world_yaw(mid, size, yaw);
+        let ground_r = size * (combat.cols.max(combat.rows) as f32 * 0.72 + 1.4);
+        rc.bind(
+            1,
+            &HuntDraw {
+                locals: HuntLocal {
+                    world: [gx, -size * 0.12, gz, ground_r],
+                    color: [0.07, 0.06, 0.05, (size * 0.05).max(0.04)],
+                    pose: [1.0, 0.0, 0.0, 0.04],
+                    joints: identity_palette(),
+                },
+            },
+        );
+        rc.draw(0, self.prism_count, 0, 1);
         let preview = game.preview_zone();
         let skill_on = game.ui.selected_skill.is_some();
         for (hex, terrain) in &combat.terrain {
             let height = terrain_height(*terrain, size);
             let (x, z) = axial_to_world_yaw(*hex, size, yaw);
+            // Slightly lifted base luminances so software Vulkan still reads ground.
             let mut color = match terrain {
-                Terrain::Water => [0.10, 0.12, 0.14],
-                Terrain::Mud => [0.22, 0.16, 0.12],
-                Terrain::Ruin => [0.26, 0.24, 0.22],
-                Terrain::Grass => [0.14, 0.15, 0.12],
+                Terrain::Water => [0.12, 0.15, 0.18],
+                Terrain::Mud => [0.26, 0.19, 0.14],
+                Terrain::Ruin => [0.30, 0.28, 0.25],
+                Terrain::Grass => [0.18, 0.20, 0.15],
             };
             if preview.iter().any(|h| h.q == hex.q && h.r == hex.r) {
                 color = if skill_on {
@@ -60,7 +77,8 @@ impl Renderer {
                     locals: HuntLocal {
                         world: [x, 0.0, z, size * 0.92],
                         color: [color[0], color[1], color[2], height.max(0.04)],
-                        pose: [1.0, 0.0, 0.0, 0.0],
+                        // Tiny unlit lift so empty-looking tops stay visible without lamps.
+                        pose: [1.0, 0.0, 0.0, 0.06],
                         joints: identity_palette(),
                     },
                 },
