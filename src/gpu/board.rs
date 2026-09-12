@@ -86,25 +86,50 @@ impl Renderer {
                 + if acting { 0.25 } else { 0.0 };
             // Prefer archive GLB: Clare/fighters → vika, yoma/enemies → valefor.
             let archive = archive_mesh_for(self, &u.template_id, u.side);
-            if let Some((buf, count)) = archive {
+            if let Some((kind, buf, count)) = archive {
                 let face = (u.facing.rem_euclid(6) as f32) * std::f32::consts::FRAC_PI_3
                     + (yaw as f32) * std::f32::consts::FRAC_PI_2;
                 // Models face +Z in Blender export; nudge so they look along hex facing.
                 let face = face + std::f32::consts::PI;
-                let scale = unit_size * 0.85;
+                // Vika is a slim humanoid (XZ ~0.72); scale up so body reads at hex size
+                // like wide valefor. Valefor keeps ~0.9 — playtest liked it.
+                let scale = match kind {
+                    ArchiveKind::Vika => unit_size * 1.35,
+                    ArchiveKind::Valefor => unit_size * 0.9,
+                };
                 let bob = if acting {
                     (t * 5.5).sin() * unit_size * 0.02
                 } else {
                     (t * 3.1).sin() * unit_size * 0.01
+                };
+                // Sit on hex top so the mesh is not buried in the prism.
+                let ground = combat
+                    .terrain
+                    .iter()
+                    .find(|(h, _)| *h == cell)
+                    .map(|(_, tr)| terrain_height(*tr, size).max(0.0))
+                    .unwrap_or(0.0);
+                // Pale Clare tint reads as ink-on-ink; lift luminance a bit for vika.
+                let (cr, cg, cb) = match kind {
+                    ArchiveKind::Vika => (
+                        (u.color[0] * 1.12 + 0.06).min(1.0),
+                        (u.color[1] * 1.10 + 0.05).min(1.0),
+                        (u.color[2] * 1.08 + 0.04).min(1.0),
+                    ),
+                    ArchiveKind::Valefor => (u.color[0], u.color[1], u.color[2]),
+                };
+                let mesh_glow = glow + match kind {
+                    ArchiveKind::Vika => 0.12,
+                    ArchiveKind::Valefor => 0.0,
                 };
                 rc.bind_vertex(0, buf.into());
                 rc.bind(
                     1,
                     &HuntDraw {
                         locals: HuntLocal {
-                            world: [x, bob, z, scale],
-                            color: [u.color[0], u.color[1], u.color[2], scale],
-                            pose: [face.cos(), face.sin(), 0.0, glow],
+                            world: [x, ground + bob, z, scale],
+                            color: [cr, cg, cb, scale],
+                            pose: [face.cos(), face.sin(), 0.0, mesh_glow],
                             joints: identity_palette(),
                         },
                     },
@@ -147,20 +172,53 @@ impl Renderer {
     }
 }
 
-fn archive_mesh_for<'a>(
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ArchiveKind {
+    Vika,
+    Valefor,
+}
+
+/// Which archive GLB (if any) is bound for this unit template.
+pub(super) fn archive_mesh_for<'a>(
     r: &'a Renderer,
     template_id: &str,
     side: Side,
-) -> Option<(gpu::Buffer, u32)> {
+) -> Option<(ArchiveKind, gpu::Buffer, u32)> {
+    let pick = |kind: ArchiveKind, slot: Option<(gpu::Buffer, u32)>| {
+        slot.map(|(buf, count)| (kind, buf, count))
+    };
     match template_id {
-        "clare" | "miria" | "helen" | "deneve" => r.vika,
-        "yoma" | "yoma_stretch" => r.valefor,
+        "clare" | "miria" | "helen" | "deneve" => pick(ArchiveKind::Vika, r.vika),
+        "yoma" | "yoma_stretch" => pick(ArchiveKind::Valefor, r.valefor),
         "raki" => None, // keep procedural kid
-        "ophelia" | "worm" => r.valefor,
+        "ophelia" | "worm" => pick(ArchiveKind::Valefor, r.valefor),
         _ => match side {
-            Side::Player => r.vika,
-            Side::Enemy => r.valefor,
+            Side::Player => pick(ArchiveKind::Vika, r.vika),
+            Side::Enemy => pick(ArchiveKind::Valefor, r.valefor),
         },
+    }
+}
+
+/// True when the unit draws an archive GLB (so the floating 2D portrait should step aside).
+pub(super) fn unit_has_archive_mesh(r: &Renderer, template_id: &str, side: Side) -> bool {
+    archive_mesh_for(r, template_id, side).is_some()
+}
+
+#[cfg(test)]
+mod archive_scale_tests {
+    use super::ArchiveKind;
+
+    fn archive_scale_mul(kind: ArchiveKind) -> f32 {
+        match kind {
+            ArchiveKind::Vika => 1.35,
+            ArchiveKind::Valefor => 0.9,
+        }
+    }
+
+    #[test]
+    fn vika_scaled_larger_than_valefor() {
+        assert!(archive_scale_mul(ArchiveKind::Vika) > archive_scale_mul(ArchiveKind::Valefor));
+        assert!(archive_scale_mul(ArchiveKind::Vika) >= 1.2);
     }
 }
 
