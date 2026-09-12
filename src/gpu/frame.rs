@@ -78,6 +78,39 @@ impl Renderer {
                 Mode::Scene => self.draw_scene(&mut pass, game, w, h),
             }
         }
+        // Island party mesh under HUD: map → vika → chips/prompts.
+        if game.mode == Mode::World {
+            if let mut pass = encoder.render(
+                "world-party",
+                gpu::RenderTargetSet {
+                    colors: &[gpu::RenderTarget {
+                        view: target,
+                        init_op: gpu::InitOp::Load,
+                        finish_op: gpu::FinishOp::Store,
+                    }],
+                    depth_stencil: Some(gpu::RenderTarget {
+                        view: self.depth_view,
+                        init_op: gpu::InitOp::Clear(gpu::TextureColor::White),
+                        finish_op: gpu::FinishOp::Discard,
+                    }),
+                },
+            ) {
+                self.draw_world_party(&mut pass, game, w, h);
+            }
+            if let mut pass = encoder.render(
+                "world-hud",
+                gpu::RenderTargetSet {
+                    colors: &[gpu::RenderTarget {
+                        view: target,
+                        init_op: gpu::InitOp::Load,
+                        finish_op: gpu::FinishOp::Store,
+                    }],
+                    depth_stencil: None,
+                },
+            ) {
+                self.draw_world_hud(&mut pass, game, w, h);
+            }
+        }
     }
 
     pub fn destroy(&mut self, context: &gpu::Context) {
