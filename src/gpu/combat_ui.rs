@@ -72,11 +72,48 @@ impl Renderer {
             }
             let c = core_hex(u);
             let (wx, wz) = axial_to_world_yaw(c, size, yaw);
-            let (sx, sy) = world_to_iso(wx, size * 0.4, wz);
             let hash = (u.id.bytes().fold(0u32, |a, b| a.wrapping_mul(31).wrapping_add(b as u32))
                 as f32)
                 * 0.01;
             let bob = (game.fx.time * 3.2 + hash).sin() * 0.004;
+            let acting = Some(u.id.as_str()) == current_unit(combat).map(|x| x.id.as_str());
+            // Archive GLB units already show a 3D body — skip the large floating
+            // portrait so it does not occlude the mesh (HUD bar portrait stays).
+            let has_mesh = super::board::unit_has_archive_mesh(self, &u.template_id, u.side);
+            if has_mesh {
+                let ground = combat
+                    .terrain
+                    .iter()
+                    .find(|(h, _)| *h == c)
+                    .map(|(_, tr)| terrain_height(*tr, size).max(0.0))
+                    .unwrap_or(0.0);
+                // Anchor HP/selection under the mesh feet (archive sits on hex top).
+                let (sx, sy) = world_to_iso(wx, ground + size * 0.02, wz);
+                let px = (ox + sx * game.ui.zoom) / w;
+                let py = (oy + sy * game.ui.zoom) / h + bob;
+                let bar_w = (size * game.ui.zoom / w) * 0.7;
+                let hp = mesh_hp_bar(px, py, bar_w);
+                if acting {
+                    let ring = (size * game.ui.zoom / w) * 0.55;
+                    self.blit_px(
+                        &mut rc,
+                        self.tex("kenney/ui/hex.png"),
+                        [px - ring * 0.5, py - ring * 0.35, ring, ring * 0.7],
+                        [0.95, 0.82, 0.35, 0.4],
+                    );
+                }
+                self.bar(
+                    &mut rc,
+                    hp[0],
+                    hp[1],
+                    hp[2],
+                    hp[3],
+                    u.hp as f32 / u.max_hp.max(1) as f32,
+                    BLOOD,
+                );
+                continue;
+            }
+            let (sx, sy) = world_to_iso(wx, size * 0.4, wz);
             let px = (ox + sx * game.ui.zoom) / w - 0.04;
             let py = (oy + sy * game.ui.zoom) / h - 0.12 + bob;
             let tint = if u.side == Side::Player {
@@ -91,7 +128,7 @@ impl Renderer {
                 portrait,
                 tint,
             );
-            if Some(u.id.as_str()) == current_unit(combat).map(|x| x.id.as_str()) {
+            if acting {
                 self.blit_px(
                     &mut rc,
                     self.tex("kenney/ui/hex.png"),
@@ -228,9 +265,16 @@ pub(crate) fn portrait_hp_bar(px: f32, py: f32, pw: f32, ph: f32) -> [f32; 4] {
     [px, py + ph + GAP, pw, BAR_H]
 }
 
+/// HP bar centered under an archive-mesh unit (no floating portrait).
+pub(crate) fn mesh_hp_bar(cx: f32, cy: f32, bar_w: f32) -> [f32; 4] {
+    const BAR_H: f32 = 0.01;
+    const GAP: f32 = 0.006;
+    [cx - bar_w * 0.5, cy + GAP, bar_w, BAR_H]
+}
+
 #[cfg(test)]
 mod tests {
-    use super::portrait_hp_bar;
+    use super::{mesh_hp_bar, portrait_hp_bar};
 
     #[test]
     fn portrait_hp_bar_sits_under_portrait() {
@@ -238,6 +282,15 @@ mod tests {
         assert!((r[0] - 0.1).abs() < 1e-6);
         assert!((r[1] - 0.322).abs() < 1e-6);
         assert!((r[2] - 0.08).abs() < 1e-6);
+        assert!(r[3] >= 0.008 && r[3] <= 0.012);
+    }
+
+    #[test]
+    fn mesh_hp_bar_centered_under_unit() {
+        let r = mesh_hp_bar(0.5, 0.4, 0.06);
+        assert!((r[0] - 0.47).abs() < 1e-6);
+        assert!(r[1] > 0.4);
+        assert!((r[2] - 0.06).abs() < 1e-6);
         assert!(r[3] >= 0.008 && r[3] <= 0.012);
     }
 }
