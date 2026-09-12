@@ -43,10 +43,28 @@ pub fn pose_fighter(p: &PoseInput) -> [Bone; 7] {
     let act = if p.acting { 1.0 } else { 0.0 };
     let hurt = if p.hurt { 1.0 } else { 0.0 };
     let enemy = if p.side == Side::Enemy { 1.0 } else { 0.0 };
-    let bob = (t * (3.1 + act * 2.4)).sin() * s * (0.018 + act * 0.02);
-    let sway = (t * 2.2).sin() * (0.12 + act * 0.18);
-    let step = (t * (4.0 + act * 3.0)).sin();
-    let recoil = hurt * (t * 18.0).sin().abs() * s * 0.04;
+    // Silver-eyed stillness vs yoma twitch — not a shared drunken bob.
+    let bob_amp = if enemy > 0.0 {
+        s * (0.028 + act * 0.032)
+    } else {
+        s * (0.008 + act * 0.012)
+    };
+    let bob_freq = if enemy > 0.0 { 4.8 + act * 2.8 } else { 2.2 + act * 1.4 };
+    let bob = (t * bob_freq).sin() * bob_amp;
+    let sway_amp = if enemy > 0.0 {
+        0.22 + act * 0.26
+    } else {
+        0.035 + act * 0.07
+    };
+    let sway_freq = if enemy > 0.0 { 3.5 } else { 1.55 };
+    let sway = (t * sway_freq).sin() * sway_amp;
+    let twitch = if enemy > 0.0 {
+        (t * 11.0).sin() * 0.10 + (t * 7.1).cos() * 0.06
+    } else {
+        (t * 1.05).sin() * 0.012
+    };
+    let step = (t * (4.0 + act * 3.0 + enemy * 1.2)).sin();
+    let recoil = hurt * (t * 18.0).sin().abs() * s * (0.04 + enemy * 0.02);
     let hip_h = s * (0.10 + enemy * 0.02);
     let torso_h = s * (0.16 + enemy * 0.04);
     let head_h = s * 0.10;
@@ -71,13 +89,13 @@ pub fn pose_fighter(p: &PoseInput) -> [Bone; 7] {
     let mut bones = [
         Bone { x: p.x, y: hip_y, z: p.z, radius: s * 0.16, height: hip_h, yaw: face, lean: 0.0, rgb: cloth, glow: glow * 0.3 },
         Bone { x: p.x + fwd_x * s * 0.02, y: torso_y, z: p.z + fwd_z * s * 0.02, radius: s * 0.14, height: torso_h, yaw: face, lean: sway * 0.15, rgb: skin, glow },
-        Bone { x: p.x + fwd_x * s * 0.03, y: head_y, z: p.z + fwd_z * s * 0.03, radius: s * 0.10, height: head_h, yaw: face, lean: sway * 0.08, rgb: head_c, glow: glow * 0.6 + act * 0.2 },
+        Bone { x: p.x + fwd_x * s * 0.03, y: head_y, z: p.z + fwd_z * s * 0.03, radius: s * 0.10, height: head_h, yaw: face + twitch * 0.15, lean: sway * 0.08 + twitch * 0.05, rgb: head_c, glow: glow * 0.6 + act * 0.2 },
         Bone { x: p.x + right_x * arm_span + fwd_x * r_swing, y: torso_y + raise * 0.4, z: p.z + right_z * arm_span + fwd_z * r_swing, radius: s * 0.06, height: arm_h, yaw: face + 0.35 + act * 0.4, lean: -0.2 - act * 0.3, rgb: cloth, glow: act * 0.35 },
         Bone { x: p.x - right_x * arm_span + fwd_x * l_swing, y: torso_y, z: p.z - right_z * arm_span + fwd_z * l_swing, radius: s * 0.06, height: arm_h, yaw: face - 0.35, lean: 0.15, rgb: cloth, glow: 0.0 },
         Bone { x: p.x + right_x * leg_span + fwd_x * l_swing * 0.6, y: limb_h * 0.45 + bob * 0.3, z: p.z + right_z * leg_span + fwd_z * l_swing * 0.6, radius: s * 0.07, height: limb_h, yaw: face, lean: step * 0.2, rgb: cloth, glow: 0.0 },
         Bone { x: p.x - right_x * leg_span + fwd_x * r_swing * 0.6, y: limb_h * 0.45 + bob * 0.3, z: p.z - right_z * leg_span + fwd_z * r_swing * 0.6, radius: s * 0.07, height: limb_h, yaw: face, lean: -step * 0.2, rgb: cloth, glow: 0.0 },
     ];
-    apply_clip(&mut bones, p.clip, p.clip_u, s, fwd_x, fwd_z);
+    apply_clip(&mut bones, p.clip, p.clip_u, s, fwd_x, fwd_z, p.side);
     bones
 }
 
@@ -89,33 +107,69 @@ fn pulse(u: f32, peak: f32) -> f32 {
     }
 }
 
-fn apply_clip(bones: &mut [Bone; 7], clip: FightClip, u: f32, s: f32, fwd_x: f32, fwd_z: f32) {
+fn apply_clip(
+    bones: &mut [Bone; 7],
+    clip: FightClip,
+    u: f32,
+    s: f32,
+    fwd_x: f32,
+    fwd_z: f32,
+    side: Side,
+) {
     let u = u.clamp(0.0, 1.0);
+    let enemy = side == Side::Enemy;
     match clip {
         FightClip::Idle | FightClip::Ready => {}
         FightClip::Slash => {
-            let k = pulse(u, 0.38);
-            let reach = k * s * 0.28;
-            bones[1].yaw += k * 0.35;
-            bones[1].lean += k * 0.12;
-            bones[3].x += fwd_x * reach;
-            bones[3].z += fwd_z * reach;
-            bones[3].y += k * s * 0.06;
-            bones[3].yaw += k * 0.8;
-            bones[3].lean -= k * 0.45;
-            bones[3].glow = (bones[3].glow + k * 0.7).min(1.2);
-            bones[4].x -= fwd_x * reach * 0.25;
-            bones[4].z -= fwd_z * reach * 0.25;
+            if enemy {
+                // Yoma anatomy: stretchier limbs, heavier plant/recoil.
+                let k = pulse(u, 0.42);
+                let stretch = k * s * 0.40;
+                bones[1].yaw += k * 0.48;
+                bones[1].lean += k * 0.24;
+                bones[3].x += fwd_x * stretch;
+                bones[3].z += fwd_z * stretch;
+                bones[3].y += k * s * 0.11;
+                bones[3].height *= 1.0 + k * 0.55;
+                bones[3].radius *= 1.0 + k * 0.18;
+                bones[4].height *= 1.0 + k * 0.30;
+                bones[3].yaw += k * 0.65;
+                bones[3].lean -= k * 0.38;
+                bones[3].glow = (bones[3].glow + k * 0.55).min(1.2);
+                bones[0].y -= k * s * 0.05;
+                bones[0].x -= fwd_x * k * s * 0.07;
+                bones[0].z -= fwd_z * k * s * 0.07;
+            } else {
+                // Quicksword snap: early peak, short reach, sharp arm/torso whip.
+                let k = pulse(u, 0.20);
+                let reach = k * s * 0.15;
+                bones[1].yaw += k * 0.62;
+                bones[1].lean += k * 0.05;
+                bones[1].x += fwd_x * reach * 0.35;
+                bones[1].z += fwd_z * reach * 0.35;
+                bones[3].x += fwd_x * reach;
+                bones[3].z += fwd_z * reach;
+                bones[3].y += k * s * 0.025;
+                bones[3].yaw += k * 1.25;
+                bones[3].lean -= k * 0.60;
+                bones[3].glow = (bones[3].glow + k * 0.85).min(1.2);
+                bones[4].x -= fwd_x * reach * 0.40;
+                bones[4].z -= fwd_z * reach * 0.40;
+                bones[2].yaw += k * 0.12;
+            }
         }
         FightClip::Lunge => {
             let k = pulse(u, 0.45);
-            let reach = k * s * 0.20;
+            let reach = k * s * (0.20 + if enemy { 0.08 } else { 0.0 });
             for b in bones.iter_mut() {
                 b.x += fwd_x * reach;
                 b.z += fwd_z * reach;
             }
             bones[0].y -= k * s * 0.03;
             bones[5].y -= k * s * 0.02;
+            if enemy {
+                bones[3].height *= 1.0 + k * 0.25;
+            }
         }
         FightClip::Guard => {
             let k = pulse(u, 0.2).max(0.55);
@@ -135,14 +189,32 @@ fn apply_clip(bones: &mut [Bone; 7], clip: FightClip, u: f32, s: f32, fwd_x: f32
             bones[2].glow = (bones[2].glow + k * 0.4).min(1.2);
         }
         FightClip::Hurt => {
-            let k = pulse(u, 0.25);
-            let back = k * s * 0.14;
+            // Real flinch: crumple, twist, head tuck, arm flail — not a tint.
+            let k = pulse(u, 0.20);
+            let impact = if enemy { 1.45 } else { 1.0 };
+            let back = k * s * 0.24 * impact;
             for b in bones.iter_mut() {
                 b.x -= fwd_x * back;
                 b.z -= fwd_z * back;
             }
-            bones[1].lean -= k * 0.25;
-            bones[2].y -= k * s * 0.03;
+            bones[0].y -= k * s * 0.055 * impact;
+            bones[1].lean -= k * 0.48 * impact;
+            bones[1].yaw += k * 0.40 * impact;
+            bones[2].y -= k * s * 0.065 * impact;
+            bones[2].lean -= k * 0.35 * impact;
+            bones[2].yaw -= k * 0.20;
+            bones[3].y -= k * s * 0.05;
+            bones[3].lean += k * 0.55 * impact;
+            bones[3].x -= fwd_x * k * s * 0.04;
+            bones[3].z -= fwd_z * k * s * 0.04;
+            bones[4].y += k * s * 0.035;
+            bones[4].lean -= k * 0.45;
+            bones[5].lean += k * 0.40 * impact;
+            bones[6].lean -= k * 0.30 * impact;
+            if enemy {
+                bones[3].height *= 1.0 + k * 0.20;
+                bones[4].height *= 1.0 + k * 0.15;
+            }
         }
     }
 }
@@ -226,11 +298,13 @@ pub fn assign_archive_joint(pos: [f32; 3]) -> u32 {
         }
         return 0;
     }
-    if y > 0.80 {
-        return 2;
-    }
-    if (0.42..0.70).contains(&y) && x.abs() > 0.40 {
+    // Arms/wings before head. Lower+widen vs old (0.42..0.70, |x|>0.40):
+    // vika max |x|≈0.36 so sleeves/blade bind; valefor wings leave the crown.
+    if (0.36..=0.90).contains(&y) && x.abs() > 0.30 {
         return if x >= 0.0 { 3 } else { 4 };
+    }
+    if y > 0.82 {
+        return 2;
     }
     if y < 0.42 {
         return 0;
@@ -270,25 +344,43 @@ pub fn archive_joint_palette(p: &PoseInput) -> [[f32; 12]; JOINTS] {
     let s = p.size.max(1.0);
     let bind = archive_bind_centers();
     let mut out = identity_palette();
-    // Slim archive heroes (vika) are torso-heavy; fold weapon-arm reach into torso
-    // so Slash/Cut still reads without GLB joints.
-    let arm_blend = 0.55;
+    let enemy = p.side == Side::Enemy;
+    // Slim archive heroes still fold some weapon-arm reach into torso; real arm
+    // verts (after widened band) carry the Quicksword snap themselves.
+    let arm_blend = if enemy { 0.35 } else { 0.40 };
+    let weapon_dx = (posed[3].x - rest[3].x) / s;
+    let weapon_dy = (posed[3].y - rest[3].y) / s;
+    let weapon_dz = (posed[3].z - rest[3].z) / s;
+    let weapon_dyaw = posed[3].yaw - rest[3].yaw;
+    let (mx, my, mz, myaw) = match p.clip {
+        FightClip::Slash if !enemy => (1.15, 1.08, 1.15, 1.45), // punch yaw for snap
+        FightClip::Slash if enemy => (1.55, 1.40, 1.55, 1.20),  // stretch read
+        FightClip::Hurt => (1.50, 1.40, 1.50, 1.30),
+        _ => (1.25, 1.15, 1.25, 1.10),
+    };
     for i in 0..7 {
         let mut dx = (posed[i].x - rest[i].x) / s;
         let mut dy = (posed[i].y - rest[i].y) / s;
         let mut dz = (posed[i].z - rest[i].z) / s;
         let mut dyaw = posed[i].yaw - rest[i].yaw;
         if i == 1 {
-            dx += ((posed[3].x - rest[3].x) / s) * arm_blend;
-            dy += ((posed[3].y - rest[3].y) / s) * arm_blend * 0.5;
-            dz += ((posed[3].z - rest[3].z) / s) * arm_blend;
-            dyaw += (posed[3].yaw - rest[3].yaw) * 0.35;
+            dx += weapon_dx * arm_blend;
+            dy += weapon_dy * arm_blend * 0.5;
+            dz += weapon_dz * arm_blend;
+            dyaw += weapon_dyaw * 0.35;
         }
-        // Slightly punch clip motion so unit-height meshes read at hex scale.
-        dx *= 1.25;
-        dy *= 1.15;
-        dz *= 1.25;
-        dyaw *= 1.1;
+        // vika mass sits on −x (joint 4); drive both arm slots from weapon arm
+        // so Quicksword snap reads on whichever sleeve the mesh put verts on.
+        if i == 3 || i == 4 {
+            dx = weapon_dx;
+            dy = weapon_dy;
+            dz = weapon_dz;
+            dyaw = weapon_dyaw;
+        }
+        dx *= mx;
+        dy *= my;
+        dz *= mz;
+        dyaw *= myaw;
         out[i] = rel_yaw_affine(bind[i], dx, dy, dz, dyaw);
     }
     out
@@ -363,10 +455,28 @@ mod tests {
             clip: FightClip::Idle, clip_u: 0.0,
         };
         let idle = pose_fighter(&base);
-        let slash = pose_fighter(&PoseInput { clip: FightClip::Slash, clip_u: 0.38, ..base });
+        // Quicksword peaks early (~0.20); still a forward snap, not a wide slow arc.
+        let slash = pose_fighter(&PoseInput { clip: FightClip::Slash, clip_u: 0.20, ..base });
         let dx = slash[3].x - idle[3].x;
         let dz = slash[3].z - idle[3].z;
-        assert!(dx * dx + dz * dz > 20.0, "weapon arm should lunge on slash");
+        assert!(dx * dx + dz * dz > 12.0, "weapon arm should snap forward on slash");
+        assert!(
+            (slash[3].yaw - idle[3].yaw).abs() > 0.8,
+            "Quicksword should whip arm yaw hard"
+        );
+        let yoma = pose_fighter(&PoseInput {
+            side: Side::Enemy,
+            clip: FightClip::Slash,
+            clip_u: 0.42,
+            ..base
+        });
+        let ydx = yoma[3].x - idle[3].x;
+        let ydz = yoma[3].z - idle[3].z;
+        assert!(
+            ydx * ydx + ydz * ydz > dx * dx + dz * dz,
+            "yoma slash should stretch farther than Quicksword snap"
+        );
+        assert!(yoma[3].height > slash[3].height, "yoma arm should elongate on slash");
     }
 
     #[test]
@@ -378,6 +488,9 @@ mod tests {
         assert_eq!(assign_archive_joint([0.0, 0.92, 0.0]), 2, "crown → head");
         assert_eq!(assign_archive_joint([0.55, 0.55, 0.0]), 3, "wide right → arm");
         assert_eq!(assign_archive_joint([-0.55, 0.55, 0.0]), 4, "wide left → arm");
+        // Widened band: vika-scale lateral mid verts bind to arms (|x|>0.30).
+        assert_eq!(assign_archive_joint([-0.32, 0.60, 0.0]), 4, "vika sleeve → arm");
+        assert_eq!(assign_archive_joint([0.35, 0.85, 0.0]), 3, "high wing/arm before head");
     }
 
     #[test]
@@ -388,14 +501,24 @@ mod tests {
             clip: FightClip::Idle, clip_u: 0.0,
         };
         let idle = archive_joint_palette(&base);
-        let slash = archive_joint_palette(&PoseInput { clip: FightClip::Slash, clip_u: 0.38, ..base });
+        let slash = archive_joint_palette(&PoseInput { clip: FightClip::Slash, clip_u: 0.20, ..base });
         // Torso translation tx/tz (indices 3 and 11) should shift on slash.
         let dtx = slash[1][3] - idle[1][3];
         let dtz = slash[1][11] - idle[1][11];
-        assert!(dtx * dtx + dtz * dtz > 0.01, "archive torso should swing on slash");
-        let hurt = archive_joint_palette(&PoseInput { clip: FightClip::Hurt, clip_u: 0.25, ..base });
+        assert!(dtx * dtx + dtz * dtz > 0.004, "archive torso should whip on slash");
+        // Arm slots (both) should move — vika mass may sit on joint 4.
+        let adx = slash[3][3] - idle[3][3];
+        let adz = slash[3][11] - idle[3][11];
+        let bdx = slash[4][3] - idle[4][3];
+        let bdz = slash[4][11] - idle[4][11];
+        assert!(adx * adx + adz * adz > 0.01, "weapon arm joint should snap");
+        assert!(bdx * bdx + bdz * bdz > 0.01, "opposite arm slot should also snap");
+        let hurt = archive_joint_palette(&PoseInput { clip: FightClip::Hurt, clip_u: 0.20, ..base });
         let htx = hurt[1][3] - idle[1][3];
         let htz = hurt[1][11] - idle[1][11];
-        assert!(htx * htx + htz * htz > 0.002, "archive torso should flinch on hurt");
+        assert!(htx * htx + htz * htz > 0.01, "archive torso should flinch hard on hurt");
+        let hlean = (hurt[1][0] - idle[1][0]).abs() + (hurt[2][7] - idle[2][7]).abs();
+        let _ = hlean; // head/torso also shift in ty
+        assert!((hurt[2][7] - idle[2][7]).abs() > 0.01, "head should tuck on hurt");
     }
 }

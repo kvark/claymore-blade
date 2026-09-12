@@ -385,6 +385,61 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cut_on_legal_target_reduces_hp() {
+        let enc = catalog::encounter("doga-yoma").unwrap();
+        let mut s = create_battle(enc, &["clare".into()], 3);
+        let cut = catalog::skill("cut").expect("cut skill");
+        assert!(cut.strikes, "Cut must strike so hunt HP and hurt flinch fire");
+        let claw = catalog::skill("claw").expect("rend/claw");
+        assert!(claw.strikes, "Rend must strike like Cut");
+
+        let clare_turn = s
+            .order
+            .iter()
+            .position(|id| id == "clare")
+            .expect("clare in order");
+        s.turn = clare_turn;
+        if let Some(c) = s.units.iter_mut().find(|u| u.id == "clare") {
+            c.ap = 2;
+        }
+        let prey = s
+            .units
+            .iter()
+            .find(|u| u.side == Side::Enemy && !u.dead)
+            .cloned()
+            .expect("yoma");
+        let prey_hex = core_hex(&prey);
+        // Place Clare adjacent so Cut is legal.
+        if let Some(c) = s.units.iter_mut().find(|u| u.id == "clare") {
+            let n = crate::hex::hex_neighbors(prey_hex)
+                .into_iter()
+                .find(|h| in_bounds(*h, s.cols, s.rows))
+                .expect("neighbor");
+            c.origin = n;
+            c.ap = 2;
+        }
+        let targets = legal_targets(&s, "clare", "cut");
+        assert!(
+            targets.iter().any(|h| crate::hex::hex_eq(*h, prey_hex)),
+            "prey hex should be a legal Cut target"
+        );
+        let hp_before = s.units.iter().find(|u| u.id == prey.id).unwrap().hp;
+        act(
+            &mut s,
+            PlayerAction::Skill {
+                id: "cut".into(),
+                hex: prey_hex,
+            },
+            true,
+        );
+        let hp_after = s.units.iter().find(|u| u.id == prey.id).unwrap().hp;
+        assert!(
+            hp_after < hp_before,
+            "Cut should reduce HP (before {hp_before} after {hp_after})"
+        );
+    }
+
+    #[test]
     fn lure_marks_or_pulls_the_yoma() {
         let enc = catalog::encounter("doga-yoma").unwrap();
         let mut s = create_battle(enc, &["clare".into()], 3);
