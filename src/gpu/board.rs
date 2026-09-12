@@ -71,8 +71,8 @@ impl Renderer {
                     locals: HuntLocal {
                         world: [x, 0.0, z, size * 0.92],
                         color: [color[0], color[1], color[2], height.max(0.04)],
-                        // Tiny unlit lift so empty-looking tops stay visible without lamps.
-                        pose: [1.0, 0.0, 0.0, 0.06],
+                        // Unlit albedo lift so terrain hue survives Lavapipe + actor lamps.
+                        pose: [1.0, 0.0, 0.0, 0.14],
                         joints: identity_palette(),
                     },
                 },
@@ -233,10 +233,10 @@ pub(super) fn unit_has_archive_mesh(r: &Renderer, template_id: &str, side: Side)
 /// at a glance while staying in DESIGN.md Ink / Ash / Steel / Blood — no gold/purple.
 pub(super) fn terrain_tint(terrain: Terrain) -> [f32; 3] {
     match terrain {
-        Terrain::Water => [0.05, 0.09, 0.18], // darker, bluer
-        Terrain::Mud => [0.36, 0.18, 0.08],   // browner earth
-        Terrain::Ruin => [0.38, 0.37, 0.39],  // cooler steel grey
-        Terrain::Grass => [0.10, 0.28, 0.09], // greener moss
+        Terrain::Water => [0.03, 0.08, 0.22], // darker, bluer
+        Terrain::Mud => [0.42, 0.16, 0.06],   // browner earth
+        Terrain::Ruin => [0.42, 0.41, 0.44],  // cooler steel grey
+        Terrain::Grass => [0.08, 0.34, 0.07], // greener moss
     }
 }
 
@@ -285,7 +285,7 @@ mod terrain_tint_tests {
             (m, g, "mud-grass"),
             (r, g, "ruin-grass"),
         ] {
-            assert!(dist(a, b) >= 0.18, "{label} too close: {}", dist(a, b));
+            assert!(dist(a, b) >= 0.22, "{label} too close: {}", dist(a, b));
         }
         assert!(g[1] > g[0] && g[1] > g[2], "grass should be greener");
         assert!(m[0] > m[1] && m[0] > m[2], "mud should be browner (red-led)");
