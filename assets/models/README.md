@@ -1,5 +1,7 @@
 # Archive 3D models
 
+Archive meshes serve the Claymore anime tactical-hunt look (series warriors / yoma), not a generic dark-fantasy skin.
+
 Converted from [kvark/claymore v0.1 `data.tgz`](https://github.com/kvark/claymore/releases/tag/v0.1) KRI `k3mesh` scenes (Blender exporter + rust `claymore_load`).
 
 | GLB | Source scene | Role in hunt |

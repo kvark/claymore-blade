@@ -5,6 +5,8 @@ The October 2007–13 notes (`wave.pdf` is a Google Wave export titled `=+ Claym
 
 This document is the source of truth for the playable slice and for a later native Blade port.
 
+**North star:** claymore-blade is a *Claymore* anime tactical hunt — series roster, silver-eyed warriors, yoma — not a generic dark-fantasy skin.
+
 ---
 
 ## 1. Pitch
@@ -51,7 +53,7 @@ The old notes argued for pause-driven real-time (Dragon Age). The current brief 
 
 ## 4. Tone and look
 
-Dark European island. Mud roads, wet stone, pine, ruined keeps. Warriors wear black armored undersuits and pale cloaks, silver eyes, hair from white to ash. Swords are too large. Yoki is a sick pale light, not fireworks.
+Locked to the Claymore anime look (see North star above). Dark European island. Mud roads, wet stone, pine, ruined keeps. Warriors wear black armored undersuits and pale cloaks, silver eyes, hair from white to ash. Swords are too large. Yoki is a sick pale light, not fireworks.
 
 Palette (UI and world):
 
