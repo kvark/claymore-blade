@@ -165,6 +165,8 @@ impl Game {
             ..Ui::default()
         };
         self.fx = crate::fx::Fx::default();
+        self.enemy_tell = None;
+        self.enemy_tell_announced = false;
         self.persist();
     }
 }

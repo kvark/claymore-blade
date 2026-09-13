@@ -50,6 +50,7 @@ impl Renderer {
         );
         rc.draw(0, self.prism_count, 0, 1);
         let preview = game.preview_zone();
+        let threat = game.threat_zone();
         let skill_on = game.ui.selected_skill.is_some();
         for (hex, terrain) in &combat.terrain {
             let height = terrain_height(*terrain, size);
@@ -61,6 +62,10 @@ impl Renderer {
                 } else {
                     [0.28, 0.34, 0.18]
                 };
+            }
+            // Enemy claw tell — blood/danger, not gold (overrides move tint).
+            if threat.iter().any(|h| h.q == hex.q && h.r == hex.r) {
+                color = [0.50, 0.10, 0.12];
             }
             if game.ui.hover == Some(*hex) {
                 color = [0.52, 0.48, 0.40]; // dust/ash, not gold

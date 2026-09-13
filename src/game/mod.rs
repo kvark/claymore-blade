@@ -83,6 +83,16 @@ pub const WORLD_HOUR_RATE: f32 = 1.0;
 /// Footfall / bob cycle length; dust + audio share this cadence.
 pub const WORLD_STEP_PERIOD: f32 = 0.32;
 
+
+/// Presentation-only windup before an enemy skill resolves.
+#[derive(Clone, Debug)]
+pub struct EnemyTell {
+    pub unit_id: String,
+    pub skill_id: String,
+    pub hex: Axial,
+    pub resolve_at: f32,
+}
+
 pub struct Game {
     pub mode: Mode,
     pub world: WorldState,
@@ -105,6 +115,10 @@ pub struct Game {
     pub pending_encounter: Option<String>,
     /// Seconds left to confirm Combat Esc flee (0 = not armed).
     pub esc_arm: f32,
+    /// Armed yoma claw windup (hex + stretch) before HP drops.
+    pub enemy_tell: Option<EnemyTell>,
+    /// Plated "YOMA REACHES" shown once per fight.
+    pub enemy_tell_announced: bool,
 }
 
 
@@ -136,6 +150,8 @@ impl Game {
             scene: None,
             pending_encounter: None,
             esc_arm: 0.0,
+            enemy_tell: None,
+            enemy_tell_announced: false,
         }
     }
 
@@ -170,6 +186,8 @@ impl Game {
         self.facing_y = 0.0;
         self.walking = false;
         self.step_acc = 0.0;
+        self.enemy_tell = None;
+        self.enemy_tell_announced = false;
         audio::confirm();
         self.persist();
     }
@@ -225,6 +243,7 @@ impl Game {
                         self.fx.emit_mote(p[0], p[1] + 0.02);
                     }
                 }
+                self.tick_enemy_tell();
             }
             _ => {}
         }
