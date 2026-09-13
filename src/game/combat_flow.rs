@@ -4,7 +4,8 @@ use super::*;
 use crate::audio;
 use crate::catalog;
 use crate::combat::{
-    act, core_hex, current_unit, legal_moves, legal_targets, run_ai, PlayerAction, Side,
+    act, core_hex, current_unit, legal_moves, legal_targets, peek_enemy_tell, run_ai_prep,
+    zone_for, IntendedStrike, PlayerAction, Side,
 };
 use crate::dialog::{self, SceneId, SceneState};
 use crate::hud;
@@ -112,17 +113,166 @@ impl Game {
         let actor = current_unit(combat).map(|u| (u.id.clone(), core_hex(u)));
         let log_len = combat.log.len();
 
-        let Some(combat) = self.combat.as_mut() else {
-            return;
+        let pending_strike = {
+            let Some(combat) = self.combat.as_mut() else {
+                return;
+            };
+            act(combat, action.clone(), raki);
+            if current_unit(combat)
+                .map(|u| u.side == Side::Enemy)
+                .unwrap_or(false)
+            {
+                // Move / Raise / Wait instantly; hold the claw so the tell is readable.
+                run_ai_prep(combat)
+            } else {
+                None
+            }
         };
-        act(combat, action.clone(), raki);
-        if current_unit(combat)
-            .map(|u| u.side == Side::Enemy)
+        self.juice_from_act(&before, actor, &action, log_len);
+        if let Some(strike) = pending_strike {
+            self.arm_enemy_tell(strike);
+        }
+        if let Some(win) = self.combat.as_ref().and_then(|c| c.over) {
+            let id = self.combat.as_ref().unwrap().id.clone();
+            self.finish_combat_id(win, &id);
+        } else {
+            self.persist();
+        }
+    }
+
+    /// Blood-tint hexes the next yoma will claw (pending windup or player-turn peek).
+    pub fn threat_zone(&self) -> Vec<Axial> {
+        let Some(combat) = self.combat.as_ref() else {
+            return vec![];
+        };
+        let strike = if let Some(tell) = self.enemy_tell.as_ref() {
+            Some(IntendedStrike {
+                unit_id: tell.unit_id.clone(),
+                skill_id: tell.skill_id.clone(),
+                hex: tell.hex,
+            })
+        } else if current_unit(combat)
+            .map(|u| u.side == Side::Player)
             .unwrap_or(false)
         {
-            run_ai(combat);
+            peek_enemy_tell(combat)
+        } else {
+            None
+        };
+        let Some(strike) = strike else {
+            return vec![];
+        };
+        let Some(u) = combat.units.iter().find(|u| u.id == strike.unit_id) else {
+            return vec![];
+        };
+        let Some(skill) = catalog::skill(&strike.skill_id) else {
+            return vec![];
+        };
+        zone_for(combat, u, skill, strike.hex)
+    }
+
+    pub(super) fn arm_enemy_tell(&mut self, strike: IntendedStrike) {
+        self.enemy_tell = Some(super::EnemyTell {
+            unit_id: strike.unit_id.clone(),
+            skill_id: strike.skill_id.clone(),
+            hex: strike.hex,
+            resolve_at: self.fx.time + 0.65,
+        });
+        self.fx.play_clip(&strike.unit_id, crate::fx::FightClip::Slash);
+        if !self.enemy_tell_announced {
+            self.fx.emit_hint(0.50, 0.72, "YOMA REACHES");
+            self.enemy_tell_announced = true;
         }
+    }
+
+    pub(super) fn tick_enemy_tell(&mut self) {
+        // Soft stretch while the player can still Guard against a peeked claw.
+        if self.enemy_tell.is_none() {
+            if let Some(combat) = self.combat.as_ref() {
+                if current_unit(combat)
+                    .map(|u| u.side == Side::Player)
+                    .unwrap_or(false)
+                {
+                    if let Some(strike) = peek_enemy_tell(combat) {
+                        let id = strike.unit_id.clone();
+                        if self.fx.clip_of(&id).0 == crate::fx::FightClip::Idle {
+                            self.fx.play_clip(&id, crate::fx::FightClip::Slash);
+                        }
+                        if !self.enemy_tell_announced {
+                            self.fx.emit_hint(0.50, 0.72, "YOMA REACHES");
+                            self.enemy_tell_announced = true;
+                        }
+                    }
+                }
+            }
+            return;
+        }
+        let unit_id = self.enemy_tell.as_ref().unwrap().unit_id.clone();
+        if self.fx.clip_of(&unit_id).0 == crate::fx::FightClip::Idle {
+            self.fx.play_clip(&unit_id, crate::fx::FightClip::Slash);
+        }
+        let ready = self
+            .enemy_tell
+            .as_ref()
+            .map(|t| self.fx.time >= t.resolve_at)
+            .unwrap_or(false);
+        if !ready {
+            return;
+        }
+        let Some(tell) = self.enemy_tell.take() else {
+            return;
+        };
+        self.resolve_enemy_tell(tell);
+    }
+
+    fn resolve_enemy_tell(&mut self, tell: super::EnemyTell) {
+        let raki = self.world.raki;
+        let Some(combat) = self.combat.as_ref() else {
+            return;
+        };
+        let before: Vec<(String, i32, bool, Axial, i32, i32)> = combat
+            .units
+            .iter()
+            .map(|u| {
+                (
+                    u.id.clone(),
+                    u.hp,
+                    u.dead,
+                    u.origin,
+                    u.trans,
+                    u.yoki,
+                )
+            })
+            .collect();
+        let actor_hex = combat
+            .units
+            .iter()
+            .find(|u| u.id == tell.unit_id)
+            .map(|u| core_hex(u));
+        let actor = actor_hex.map(|h| (tell.unit_id.clone(), h));
+        let log_len = combat.log.len();
+        let action = PlayerAction::Skill {
+            id: tell.skill_id.clone(),
+            hex: tell.hex,
+        };
+        let pending_strike = {
+            let Some(combat) = self.combat.as_mut() else {
+                return;
+            };
+            act(combat, action.clone(), raki);
+            if current_unit(combat)
+                .map(|u| u.side == Side::Enemy)
+                .unwrap_or(false)
+            {
+                run_ai_prep(combat)
+            } else {
+                None
+            }
+        };
         self.juice_from_act(&before, actor, &action, log_len);
+        if let Some(strike) = pending_strike {
+            self.arm_enemy_tell(strike);
+        }
         if let Some(win) = self.combat.as_ref().and_then(|c| c.over) {
             let id = self.combat.as_ref().unwrap().id.clone();
             self.finish_combat_id(win, &id);
@@ -347,6 +497,8 @@ impl Game {
         self.result_win = Some(win);
         self.mode = Mode::Result;
         self.combat = None;
+        self.enemy_tell = None;
+        self.enemy_tell_announced = false;
         self.persist();
     }
 }

@@ -26,6 +26,7 @@ impl Renderer {
             yaw,
         );
         let preview = game.preview_zone();
+        let threat = game.threat_zone();
         let skill_on = game.ui.selected_skill.is_some();
         let overlay = if skill_on {
             "kenney/ui/hex-hit.png"
@@ -49,6 +50,22 @@ impl Renderer {
                 self.tex(overlay),
                 [px - hw * 0.5, py - hh * 0.45, hw, hh],
                 otint,
+            );
+        }
+        // Yoma claw tell — same hex language as skill preview, blood/danger tint.
+        let ttint = [0.78, 0.12, 0.14, 0.78];
+        for hex in &threat {
+            let (wx, wz) = axial_to_world_yaw(*hex, size, yaw);
+            let (sx, sy) = world_to_iso(wx, size * 0.16, wz);
+            let px = (ox + sx * game.ui.zoom) / w;
+            let py = (oy + sy * game.ui.zoom) / h;
+            let hw = (size * game.ui.zoom / w) * 1.2;
+            let hh = (size * game.ui.zoom / h) * 0.7;
+            self.blit_px(
+                &mut rc,
+                self.tex("kenney/ui/hex-hit.png"),
+                [px - hw * 0.5, py - hh * 0.45, hw, hh],
+                ttint,
             );
         }
         for (hex, terrain) in &combat.terrain {
