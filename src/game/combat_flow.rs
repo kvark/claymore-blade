@@ -92,10 +92,12 @@ impl Game {
     }
 
     pub fn combat_act(&mut self, action: PlayerAction) {
-        let raki = self.world.raki;
         let Some(combat) = self.combat.as_ref() else {
             return;
         };
+        if current_unit(combat).map(|u| u.side) != Some(Side::Player) {
+            return;
+        }
         let before: Vec<(String, i32, bool, Axial, i32, i32)> = combat
             .units
             .iter()
@@ -117,7 +119,7 @@ impl Game {
             let Some(combat) = self.combat.as_mut() else {
                 return;
             };
-            act(combat, action.clone(), raki);
+            act(combat, action.clone(), true);
             if current_unit(combat)
                 .map(|u| u.side == Side::Enemy)
                 .unwrap_or(false)
@@ -188,6 +190,26 @@ impl Game {
     pub(super) fn tick_enemy_tell(&mut self) {
         // Soft stretch while the player can still Guard against a peeked claw.
         if self.enemy_tell.is_none() {
+            // Saves contain combat state, not presentation timers. Resume an
+            // enemy phase after Continue (or after discarding a stale tell).
+            let enemy_turn = self
+                .combat
+                .as_ref()
+                .and_then(current_unit)
+                .map(|u| u.side == Side::Enemy)
+                .unwrap_or(false);
+            if enemy_turn {
+                let strike = self.combat.as_mut().and_then(run_ai_prep);
+                if let Some(win) = self.combat.as_ref().and_then(|c| c.over) {
+                    self.finish_combat(win);
+                } else {
+                    if let Some(strike) = strike {
+                        self.arm_enemy_tell(strike);
+                    }
+                    self.persist();
+                }
+                return;
+            }
             if let Some(combat) = self.combat.as_ref() {
                 if current_unit(combat)
                     .map(|u| u.side == Side::Player)
@@ -226,10 +248,17 @@ impl Game {
     }
 
     fn resolve_enemy_tell(&mut self, tell: super::EnemyTell) {
-        let raki = self.world.raki;
         let Some(combat) = self.combat.as_ref() else {
             return;
         };
+        // The AI entry point bypasses the player-side gate. Never apply a
+        // presentation callback to a different actor after a state change.
+        if !current_unit(combat)
+            .map(|u| u.side == Side::Enemy && u.id == tell.unit_id)
+            .unwrap_or(false)
+        {
+            return;
+        }
         let before: Vec<(String, i32, bool, Axial, i32, i32)> = combat
             .units
             .iter()
@@ -259,7 +288,7 @@ impl Game {
             let Some(combat) = self.combat.as_mut() else {
                 return;
             };
-            act(combat, action.clone(), raki);
+            act(combat, action.clone(), false);
             if current_unit(combat)
                 .map(|u| u.side == Side::Enemy)
                 .unwrap_or(false)
@@ -524,4 +553,166 @@ fn find_defender_hex(combat: &crate::combat::CombatState, text: &str) -> Option<
         }
     }
     best.map(|(_, hex)| hex)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::combat::{create_battle, Terrain};
+
+    fn adjacent_yoma(raki: bool) -> Game {
+        let mut game = Game::new();
+        game.world = world::new_world();
+        game.world.raki = raki;
+        game.mode = Mode::Combat;
+        game.enemy_tell = None;
+        let mut combat = create_battle(
+            catalog::encounter("paburo-nest").unwrap(),
+            &["clare".into()],
+            7,
+        );
+        combat.units.retain(|u| u.id == "clare" || u.id == "yoma-0");
+        combat.order = vec!["clare".into(), "yoma-0".into()];
+        combat.turn = 0;
+        combat.support_raki = raki;
+        for (_, terrain) in &mut combat.terrain {
+            *terrain = Terrain::Grass;
+        }
+        for unit in &mut combat.units {
+            unit.origin = if unit.side == Side::Player {
+                Axial::new(3, 3)
+            } else {
+                Axial::new(4, 3)
+            };
+            unit.ap = 1;
+            unit.max_ap = 1;
+        }
+        game.combat = Some(combat);
+        game
+    }
+
+    fn waiting_for_yoma(raki: bool) -> Game {
+        let mut game = adjacent_yoma(raki);
+        game.combat_act(PlayerAction::Wait);
+        assert_eq!(
+            current_unit(game.combat.as_ref().unwrap()).unwrap().id,
+            "yoma-0"
+        );
+        assert_eq!(game.enemy_tell.as_ref().unwrap().skill_id, "claw");
+        game
+    }
+
+    fn resolve_pending(game: &mut Game) {
+        game.fx.time = game.enemy_tell.as_ref().unwrap().resolve_at;
+        game.tick_enemy_tell();
+    }
+
+    #[test]
+    fn enemy_tell_resolves_with_or_without_recruited_raki() {
+        for raki in [false, true] {
+            let mut game = waiting_for_yoma(raki);
+            resolve_pending(&mut game);
+            let combat = game.combat.as_ref().unwrap();
+            assert_eq!(
+                current_unit(combat).unwrap().side,
+                Side::Player,
+                "enemy must spend its AP and return the turn; Raki={raki}"
+            );
+            assert!(game.enemy_tell.is_none());
+            assert!(combat.log.iter().any(|entry| entry.text == "Yoma uses Rend."));
+        }
+    }
+
+    #[test]
+    fn player_input_cannot_control_or_postpone_enemy_turn() {
+        for raki in [false, true] {
+            for action in [PlayerAction::Wait, PlayerAction::Raise] {
+                let mut game = waiting_for_yoma(raki);
+                let before = serde_json::to_string(game.combat.as_ref().unwrap()).unwrap();
+                let deadline = game.enemy_tell.as_ref().unwrap().resolve_at;
+                game.fx.time += 0.2;
+                game.combat_act(action);
+                assert!(
+                    serde_json::to_string(game.combat.as_ref().unwrap()).unwrap() == before,
+                    "player input changed an enemy turn; Raki={raki}"
+                );
+                assert_eq!(game.enemy_tell.as_ref().unwrap().resolve_at, deadline);
+                resolve_pending(&mut game);
+                assert_eq!(
+                    current_unit(game.combat.as_ref().unwrap()).unwrap().side,
+                    Side::Player
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn continue_resumes_enemy_turn_and_discards_old_tell() {
+        for raki in [false, true] {
+            for stale_tell in [false, true] {
+                let original = waiting_for_yoma(raki);
+                original.persist();
+                let mut loaded = Game::new();
+                if stale_tell {
+                    loaded.enemy_tell = Some(EnemyTell {
+                        unit_id: "old-battle-enemy".into(),
+                        skill_id: "claw".into(),
+                        hex: Axial::new(0, 0),
+                        resolve_at: 1000.0,
+                    });
+                    loaded.enemy_tell_announced = true;
+                }
+                loaded.continue_hunt();
+                assert_eq!(loaded.mode, Mode::Combat);
+                assert!(loaded.enemy_tell.is_none());
+                assert!(!loaded.enemy_tell_announced);
+                loaded.tick_enemy_tell();
+                assert_eq!(loaded.enemy_tell.as_ref().unwrap().unit_id, "yoma-0");
+                resolve_pending(&mut loaded);
+                assert_eq!(
+                    current_unit(loaded.combat.as_ref().unwrap()).unwrap().side,
+                    Side::Player
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn enemy_turn_without_tell_can_move_and_end() {
+        let mut game = adjacent_yoma(true);
+        let combat = game.combat.as_mut().unwrap();
+        combat.turn = 1;
+        combat.units.iter_mut().find(|u| u.id == "yoma-0").unwrap().origin =
+            Axial::new(8, 3);
+        game.tick_enemy_tell();
+        assert!(game.enemy_tell.is_none());
+        let combat = game.combat.as_ref().unwrap();
+        assert_eq!(current_unit(combat).unwrap().side, Side::Player);
+        assert!(combat.log.iter().any(|entry| entry.kind == "move"));
+    }
+
+    #[test]
+    fn stale_tell_never_executes_for_another_actor() {
+        for enemy_turn in [false, true] {
+            let mut game = adjacent_yoma(true);
+            if enemy_turn {
+                game.combat.as_mut().unwrap().turn = 1;
+            }
+            let before = serde_json::to_string(game.combat.as_ref().unwrap()).unwrap();
+            game.enemy_tell = Some(EnemyTell {
+                unit_id: "old-battle-enemy".into(),
+                skill_id: "claw".into(),
+                hex: Axial::new(4, 3),
+                resolve_at: game.fx.time,
+            });
+            game.tick_enemy_tell();
+            assert!(game.enemy_tell.is_none());
+            assert!(serde_json::to_string(game.combat.as_ref().unwrap()).unwrap() == before);
+            if enemy_turn {
+                game.tick_enemy_tell();
+                assert_eq!(game.enemy_tell.as_ref().unwrap().unit_id, "yoma-0");
+            }
+        }
+    }
 }
