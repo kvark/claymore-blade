@@ -130,15 +130,20 @@ impl Renderer {
                 );
                 continue;
             }
-            let (sx, sy) = world_to_iso(wx, size * 0.4, wz);
-            let px = (ox + sx * game.ui.zoom) / w - 0.04;
-            let py = (oy + sy * game.ui.zoom) / h - 0.12 + bob;
+            let ground = combat.terrain.iter()
+                .find(|(hex, _)| *hex == c)
+                .map(|(_, terrain)| terrain_height(*terrain, size).max(0.0))
+                .unwrap_or(0.0);
+            let (sx, sy) = world_to_iso(wx, ground + size * 0.02, wz);
+            let px = (ox + sx * game.ui.zoom) / w;
+            let py = (oy + sy * game.ui.zoom) / h + bob;
             let tint = if u.side == Side::Player {
                 [1.0, 1.0, 1.0, 1.0]
             } else {
                 [0.92, 0.55, 0.48, 1.0]
             };
-            let portrait = [px, py, 0.08, 0.12];
+            let aspect = self.images.get(&u.portrait).map_or(1.0, |texture| texture.aspect);
+            let portrait = board_portrait_rect(px, py, size * game.ui.zoom, w, h, aspect);
             self.blit(
                 &mut rc,
                 self.tex(&u.portrait),
@@ -149,7 +154,8 @@ impl Renderer {
                 self.blit_px(
                     &mut rc,
                     self.tex("kenney/ui/hex.png"),
-                    [px - 0.005, py - 0.01, 0.09, 0.14],
+                    [portrait[0] - 2.0 / w, portrait[1] - 2.0 / h,
+                        portrait[2] + 4.0 / w, portrait[3] + 4.0 / h],
                     [0.95, 0.82, 0.35, 0.55],
                 );
             }
@@ -282,7 +288,7 @@ impl Renderer {
         self.prompt(&mut rc, "kenney/prompt/1.png", bar.cut.x + 0.035, prompt_y, 0.024);
         self.prompt(&mut rc, "kenney/prompt/2.png", bar.guard.x + 0.04, prompt_y, 0.024);
         self.prompt(&mut rc, "kenney/prompt/3.png", bar.slot.x + 0.045, prompt_y, 0.024);
-        if let Some(line) = combat.log.first() {
+        if let Some(line) = combat.log.last() {
             self.text(&mut rc, &line.text, 0.58, bar.wait.y - 0.018, 0.011);
         }
         self.text(&mut rc, combat.title.as_str(), 0.02, 0.02, 0.014);
@@ -440,6 +446,18 @@ pub(crate) fn queue_chip_label(name: &str) -> String {
     out
 }
 
+/// Tile-scaled fallback portrait, centered over its feet and never stretched.
+pub(crate) fn board_portrait_rect(cx: f32, feet_y: f32, tile_radius: f32,
+    w: f32, h: f32, aspect: f32) -> [f32; 4] {
+    let aspect = aspect.max(0.01);
+    let max_width = (tile_radius * 1.4).clamp(8.0, 56.0);
+    let max_height = (tile_radius * 2.0).clamp(12.0, 84.0);
+    let height_px = max_height.min(max_width / aspect);
+    let pw = height_px * aspect / w.max(1.0);
+    let ph = height_px / h.max(1.0);
+    [cx - pw * 0.5, feet_y - ph, pw, ph]
+}
+
 /// Tiny blood HP bar under a board combat portrait (`[x,y,w,h]` normalized).
 pub(crate) fn portrait_hp_bar(px: f32, py: f32, pw: f32, ph: f32) -> [f32; 4] {
     const BAR_H: f32 = 0.01;
@@ -457,11 +475,37 @@ pub(crate) fn mesh_hp_bar(cx: f32, cy: f32, bar_w: f32) -> [f32; 4] {
 #[cfg(test)]
 mod tests {
     use super::{
-        mesh_hp_bar, portrait_hp_bar, queue_chip_label, queue_ids, skill_slot_ready, trans_band,
+        board_portrait_rect, mesh_hp_bar, portrait_hp_bar, queue_chip_label, queue_ids, skill_slot_ready, trans_band,
         trans_fill_tint, trans_meter_label, trans_meter_label_y,
     };
     use crate::combat::{Side, Stats, Unit};
     use crate::hex::Axial;
+
+    #[test]
+    fn board_portraits_preserve_aspect_and_feet_at_every_scale() {
+        for (w, h) in [(390.0, 844.0), (1280.0, 800.0), (1920.0, 1080.0)] {
+            for radius in [5.0, 20.0, 62.0, 96.0] {
+                for aspect in [2.0 / 3.0, 871.0 / 1093.0, 636.0 / 1255.0] {
+                    let p = board_portrait_rect(0.45, 0.6, radius, w, h, aspect);
+                    assert!((p[0] + p[2] * 0.5 - 0.45).abs() < 1e-6);
+                    assert!((p[1] + p[3] - 0.6).abs() < 1e-6);
+                    assert!((p[2] * w / (p[3] * h) - aspect).abs() < 1e-5);
+                    assert!(p[2] * w <= 56.01 && p[3] * h <= 84.01);
+                    assert!(p[2] * w <= (radius * 1.4).max(8.0) + 0.01);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn board_portraits_follow_zoom_without_covering_neighboring_columns() {
+        let small = board_portrait_rect(0.5, 0.5, 20.0 * 0.7, 1280.0, 800.0, 2.0 / 3.0);
+        let normal = board_portrait_rect(0.5, 0.5, 20.0, 1280.0, 800.0, 2.0 / 3.0);
+        let large = board_portrait_rect(0.5, 0.5, 20.0 * 1.55, 1280.0, 800.0, 2.0 / 3.0);
+        assert!(small[2] < normal[2] && normal[2] < large[2]);
+        assert!(normal[2] * 1280.0 < 30.0); // adjacent q centers are 1.5 tiles apart
+        assert!((normal[3] * 800.0 - 40.0).abs() < 1e-4);
+    }
 
     fn stub_unit(id: &str, dead: bool) -> Unit {
         Unit {

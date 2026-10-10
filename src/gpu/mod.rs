@@ -9,7 +9,8 @@ use crate::game::{Game, Mode};
 use crate::hud;
 use crate::io::{load_rgba, shader_source};
 use crate::iso::{
-    axial_to_world_yaw, board_size, camera_origin, rotate_yaw, terrain_height, world_to_iso,
+    axial_to_world_yaw, board_depth_origin_scale, board_ground_radius, board_size, camera_origin,
+    depth_origin_scale, rotate_yaw, terrain_height, world_to_iso,
 };
 use crate::prism::unit_hex_prism;
 use crate::world::clock_label;
@@ -93,6 +94,7 @@ const KENNEY: &[&str] = &[
 struct HuntGlobals {
     origin_zoom: [f32; 4],
     screen: [f32; 4],
+    depth_origin_scale: [f32; 4],
     light_dir: [f32; 4],
     lamp0: [f32; 4],
     lamp0c: [f32; 4],
@@ -161,6 +163,7 @@ struct QuadVertex {
 struct GpuTex {
     texture: gpu::Texture,
     view: gpu::TextureView,
+    aspect: f32,
 }
 
 pub struct Renderer {

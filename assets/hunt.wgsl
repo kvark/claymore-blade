@@ -1,6 +1,7 @@
 struct Globals {
     origin_zoom: vec4<f32>,
     screen: vec4<f32>,
+    depth_origin_scale: vec4<f32>,
     light_dir: vec4<f32>,
     lamp0: vec4<f32>,
     lamp0c: vec4<f32>,
@@ -78,7 +79,10 @@ fn vs_main(v: Vertex) -> VSOut {
     let sy = globals.origin_zoom.y + iso_y * globals.origin_zoom.z;
     let ndc_x = sx / max(globals.screen.x, 1.0) * 2.0 - 1.0;
     let ndc_y = 1.0 - sy / max(globals.screen.y, 1.0) * 2.0;
-    let depth = clamp(0.55 - (p.x + p.z) * 0.003 - p.y * 0.02, 0.01, 0.99);
+    // Camera-relative linear depth, perpendicular to both isometric screen axes.
+    // CPU bounds cover the whole scene; clamping would collapse its occlusion.
+    let depth = 0.5 - dot(p - globals.depth_origin_scale.xyz, vec3<f32>(1.0))
+        * globals.depth_origin_scale.w;
     let n = normalize(n0);
     let sun = max(dot(n, normalize(globals.light_dir.xyz)), 0.0);
     var lit = locals.color.xyz * (0.16 + 0.62 * sun);

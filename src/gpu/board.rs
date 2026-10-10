@@ -24,6 +24,7 @@ impl Renderer {
                 globals: HuntGlobals {
                     origin_zoom: [ox, oy, game.ui.zoom, 0.0],
                     screen: [w, h, 0.0, 0.0],
+                    depth_origin_scale: board_depth_origin_scale(combat.cols, combat.rows, size, yaw),
                     light_dir: [lx, 0.72, lz, 0.0],
                     lamp0,
                     lamp0c,
@@ -36,7 +37,7 @@ impl Renderer {
         // Dark ground disc under the prism grid so gaps / lavapipe void do not read as pure black.
         let mid = crate::hex::Axial::new((combat.cols - 1) / 2, (combat.rows - 1) / 2);
         let (gx, gz) = axial_to_world_yaw(mid, size, yaw);
-        let ground_r = size * (combat.cols.max(combat.rows) as f32 * 0.72 + 1.4);
+        let ground_r = board_ground_radius(combat.cols, combat.rows, size);
         rc.bind(
             1,
             &HuntDraw {

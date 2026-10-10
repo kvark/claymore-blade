@@ -252,6 +252,7 @@ impl Renderer {
                 globals: HuntGlobals {
                     origin_zoom: [ox, oy, zoom, 0.0],
                     screen: [w, h, 0.0, 0.0],
+                    depth_origin_scale: depth_origin_scale([0.0, bob_y, 0.0], scale * 8.0),
                     // Strong key light so solid-color vika reads facing on the flat map.
                     light_dir: [0.55, 0.55, -0.45, 0.0],
                     lamp0: [0.35, scale * 0.9, -0.25, 0.55],
