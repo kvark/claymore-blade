@@ -197,6 +197,10 @@ impl Game {
             self.world = p.world;
             world::ensure_explored(&mut self.world);
             self.combat = p.combat;
+            // Windups belong to the previous in-memory battle. The next combat
+            // tick reconstructs any pending enemy action from the loaded turn.
+            self.enemy_tell = None;
+            self.enemy_tell_announced = false;
             self.result_win = p.result_win;
             self.mode = if self.combat.is_some() {
                 Mode::Combat
