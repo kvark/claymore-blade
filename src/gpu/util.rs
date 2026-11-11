@@ -98,7 +98,7 @@ pub(super) fn upload_rgba(context: &gpu::Context, name: &str, width: u32, height
     let _ = sp;
     context.destroy_command_encoder(&mut encoder);
     context.destroy_buffer(upload);
-    GpuTex { texture, view }
+    GpuTex { texture, view, aspect: width as f32 / height.max(1) as f32 }
 }
 
 pub(super) fn make_depth(context: &gpu::Context, size: gpu::Extent) -> (gpu::Texture, gpu::TextureView) {

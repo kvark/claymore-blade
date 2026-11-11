@@ -76,6 +76,12 @@ pub fn clamp_combat_zoom(zoom: f32) -> f32 {
     zoom.clamp(COMBAT_ZOOM_MIN, COMBAT_ZOOM_MAX)
 }
 
+/// Clamp wheel zoom so the framed board stays between the HUD strips.
+pub fn clamp_board_zoom(zoom: f32, cols: i32, rows: i32, w: f32, h: f32, yaw: u8) -> f32 {
+    let cap = crate::iso::board_zoom_max(cols, rows, w, h, yaw).min(COMBAT_ZOOM_MAX);
+    zoom.clamp(COMBAT_ZOOM_MIN, cap)
+}
+
 /// Island walk speed in normalized map units per second (~8–15s Doga→Pieta).
 pub const WORLD_WALK_SPEED: f32 = 0.055;
 /// World-hour advance per real second while walking.
@@ -310,6 +316,24 @@ impl Game {
         dialog::TITLE_FLAVOR[i]
     }
 
+    /// Keep combat zoom inside the HUD gap for the current board, yaw, and screen.
+    pub fn clamp_ui_zoom(&mut self) {
+        self.ui.zoom = self.clamped_combat_zoom(self.ui.zoom);
+    }
+
+    pub fn set_combat_zoom(&mut self, zoom: f32) {
+        self.ui.zoom = self.clamped_combat_zoom(zoom);
+    }
+
+    pub fn clamped_combat_zoom(&self, zoom: f32) -> f32 {
+        if let Some(combat) = self.combat.as_ref() {
+            let [w, h] = self.ui.screen;
+            clamp_board_zoom(zoom, combat.cols, combat.rows, w.max(1.0), h.max(1.0), self.ui.yaw)
+        } else {
+            clamp_combat_zoom(zoom)
+        }
+    }
+
 }
 
 #[cfg(test)]
@@ -323,6 +347,11 @@ mod tests {
         assert!((clamp_combat_zoom(0.4) - COMBAT_ZOOM_MIN).abs() < 1e-6);
         assert!((clamp_combat_zoom(3.0) - COMBAT_ZOOM_MAX).abs() < 1e-6);
         assert!((clamp_combat_zoom(1.18) - 1.18).abs() < 1e-6);
+        // Default Continue zoom stays legal; the old 1.55 ceiling clips the board.
+        let cap = clamp_board_zoom(3.0, 11, 8, 1280.0, 800.0, 0);
+        assert!(cap + 1e-3 >= 1.05);
+        assert!(cap < COMBAT_ZOOM_MAX);
+        assert!((clamp_board_zoom(1.05, 11, 8, 1280.0, 800.0, 3) - 1.05).abs() < 1e-6);
     }
     use crate::catalog;
 

@@ -60,9 +60,165 @@ pub fn hunt_view_proj(pos: Vec3, rot: Quat, aspect: f32, depth: f32) -> Mat4 {
     proj * view
 }
 
+/// Rectangle clear of the initiative strip and the combat action panel.
+fn board_viewport(w: f32, h: f32) -> [f32; 4] {
+    [w * 0.04, h * 0.15, w * 0.96, h * (crate::hud::combat_bar().wait.y - 0.05)]
+}
+
+/// Bounds of cell centers in unit-sized, yaw-rotated isometric space.
+fn board_center_bounds(cols: i32, rows: i32, yaw: u8) -> [f32; 4] {
+    let mut bounds = [f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY];
+    for q in [0, cols - 1] {
+        for r in [0, rows - 1] {
+            let (x, z) = axial_to_world_yaw(Axial::new(q, r), 1.0, yaw);
+            let (sx, sy) = world_to_iso(x, 0.0, z);
+            bounds[0] = bounds[0].min(sx);
+            bounds[1] = bounds[1].min(sy);
+            bounds[2] = bounds[2].max(sx);
+            bounds[3] = bounds[3].max(sy);
+        }
+    }
+    bounds
+}
+
+/// Pixel bounds before camera translation, including fighter/portrait headroom.
+fn board_frame_bounds(cols: i32, rows: i32, size: f32, w: f32, h: f32, zoom: f32, yaw: u8) -> [f32; 4] {
+    let bounds = board_center_bounds(cols, rows, yaw);
+    let s = size * zoom;
+    // An animated fighter may reach one tile outward and three tiles up.
+    // Also reserve screen-space headroom for portraits, labels, and effects.
+    let side = (2.0 * ISO_COS * s).max(w * 0.04);
+    let head = (4.0 * s).max(0.4 * s + h * 0.12);
+    [bounds[0] * s - side, bounds[1] * s - head, bounds[2] * s + side, bounds[3] * s + s]
+}
+
+/// Fit the initial view at zoom 1.0. Use the worst yaw so rotation preserves
+/// tile size, and allow small tiles on narrow screens rather than clipping.
 pub fn board_size(cols: i32, rows: i32, w: f32, h: f32) -> f32 {
-    let fit = (w / (cols as f32 * 1.45 + 1.0)).min(h / (rows as f32 * 0.72 + 1.9));
-    fit.clamp(24.0, 62.0)
+    let viewport = board_viewport(w, h);
+    let width = viewport[2] - viewport[0];
+    let height = viewport[3] - viewport[1];
+    let mut fit = 62.0_f32;
+    for yaw in 0..4 {
+        let bounds = board_center_bounds(cols, rows, yaw);
+        let span_x = bounds[2] - bounds[0];
+        let span_y = bounds[3] - bounds[1];
+        fit = fit.min(width / (span_x + 4.0 * ISO_COS));
+        fit = fit.min((width - w * 0.08) / span_x.max(1.0));
+        fit = fit.min(height / (span_y + 5.0));
+        fit = fit.min((height - h * 0.12) / (span_y + 1.4));
+    }
+    // Small inset also keeps the default UI zoom (1.05 on Continue) in frame.
+    (fit * 0.94).max(0.01)
+}
+
+/// Center and scale of the hunt shader's linear depth range.
+///
+/// The screen axes in `world_to_iso` are perpendicular to (1, 1, 1), so
+/// increasing X + Y + Z moves toward the camera and must reduce depth.
+/// `extent` bounds the absolute sum of camera-relative coordinates. Leave
+/// room at both clip planes instead of clamping vertices (which flattens
+/// triangles onto the same depth and makes the first draw occlude the rest).
+pub fn depth_origin_scale(center: [f32; 3], extent: f32) -> [f32; 4] {
+    [center[0], center[1], center[2], 0.45 / extent.max(1.0)]
+}
+
+/// Centroid of the cell-center parallelogram, in yaw-rotated world XZ.
+/// Integer mid-cell is half a row off on even-height boards and leaves a gap.
+pub fn board_ground_center(cols: i32, rows: i32, size: f32, yaw: u8) -> (f32, f32) {
+    let q = (cols - 1) as f32 * 0.5;
+    let r = (rows - 1) as f32 * 0.5;
+    let x = size * 3f32.sqrt() * (q + r * 0.5);
+    let z = size * 1.5 * r;
+    rotate_yaw(x, z, yaw)
+}
+
+/// Terrain prism radius relative to the hex size (leaves a thin seam).
+pub const TILE_SCALE: f32 = 0.92;
+/// Ground plinth radius relative to the hex size. Prisms are drawn with an
+/// identity pose at every yaw, so after a 90° camera turn the lattice runs
+/// corner-to-corner; 2/sqrt(3) ≈ 1.155 is the minimum that still closes the
+/// gaps, and the rest is a visible rim around the outermost tiles.
+pub const GROUND_SCALE: f32 = 1.2;
+
+/// `HuntLocal::pose.xyz` (cos, sin, shear) for terrain prisms and ground plinths.
+pub const BOARD_PRISM_POSE: [f32; 3] = [1.0, 0.0, 0.0];
+
+/// `HuntLocal::world` for the terrain prism of `hex` (xyz offset, xz scale).
+pub fn board_tile_world(hex: Axial, size: f32, yaw: u8) -> [f32; 4] {
+    let (x, z) = axial_to_world_yaw(hex, size, yaw);
+    [x, 0.0, z, size * TILE_SCALE]
+}
+
+/// `HuntLocal::world` for the dark ground plinth under `hex`. The ground is the
+/// union of one plinth per terrain cell, placed by the same hex→world→yaw map as
+/// the tiles, so it follows the board's real footprint at every camera angle.
+pub fn board_ground_world(hex: Axial, size: f32, yaw: u8) -> [f32; 4] {
+    let (x, z) = axial_to_world_yaw(hex, size, yaw);
+    [x, -size * 0.12, z, size * GROUND_SCALE]
+}
+
+/// `HuntLocal::color.w` (prism height) for the ground plinths.
+pub fn board_ground_height(size: f32) -> f32 {
+    (size * 0.05).max(0.04)
+}
+
+/// CPU mirror of `hunt.wgsl` `vs_main` world placement for an identity skin:
+/// yaw the mesh by `pose` (cos, sin, shear), scale XZ by `world.w` and Y by
+/// `height`, then offset by `world.xyz`.
+pub fn hunt_vertex_world(world: [f32; 4], height: f32, pose: [f32; 3], pos: [f32; 3]) -> [f32; 3] {
+    let [c, s, shear] = pose;
+    let rx = pos[0] * c - pos[2] * s;
+    let rz = pos[0] * s + pos[2] * c;
+    let ly = pos[1] + shear * rx;
+    [rx * world[3] + world[0], ly * height + world[1], rz * world[3] + world[2]]
+}
+
+/// Largest zoom at which the framed board still fits between the initiative
+/// strip and the action bar. Independent of the absolute wheel ceiling.
+pub fn board_zoom_max(cols: i32, rows: i32, w: f32, h: f32, yaw: u8) -> f32 {
+    let size = board_size(cols, rows, w, h);
+    let viewport = board_viewport(w, h);
+    let vp_w = viewport[2] - viewport[0];
+    let vp_h = viewport[3] - viewport[1];
+    let fits = |zoom: f32| {
+        let b = board_frame_bounds(cols, rows, size, w, h, zoom, yaw);
+        b[2] - b[0] <= vp_w + 0.01 && b[3] - b[1] <= vp_h + 0.01
+    };
+    // Search a generous range; callers clamp to the gameplay ceiling.
+    let mut lo = 0.25_f32;
+    let mut hi = 4.0_f32;
+    if !fits(lo) {
+        return lo;
+    }
+    if fits(hi) {
+        return hi;
+    }
+    for _ in 0..24 {
+        let mid = (lo + hi) * 0.5;
+        if fits(mid) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    lo
+}
+
+/// Depth bounds in the same yaw-rotated coordinates sent to the shader.
+/// Independent of pan/zoom: reframing the board must not change occlusion.
+pub fn board_depth_origin_scale(cols: i32, rows: i32, size: f32, yaw: u8) -> [f32; 4] {
+    let (cx, cz) = board_ground_center(cols, rows, size, yaw);
+    let mut extent = 0.0_f32;
+    for q in [0, cols - 1] {
+        for r in [0, rows - 1] {
+            let (x, z) = axial_to_world_yaw(Axial::new(q, r), size, yaw);
+            extent = extent.max(((x - cx) + (z - cz)).abs());
+        }
+    }
+    // Covers ground plinths and prism radii, raised terrain, and animated
+    // fighters extending two tiles horizontally and four tiles above any cell.
+    depth_origin_scale([cx, 0.0, cz], extent + size * (8.0 + 2.0 * GROUND_SCALE))
 }
 
 pub fn camera_origin(
@@ -75,9 +231,12 @@ pub fn camera_origin(
     zoom: f32,
     yaw: u8,
 ) -> (f32, f32) {
-    let mid = axial_to_world_yaw(Axial::new((cols - 1) / 2, (rows - 1) / 2), size, yaw);
-    let (cx, cy) = world_to_iso(mid.0, 0.0, mid.1);
-    (w / 2.0 - cx * zoom + pan[0], h * 0.40 - cy * zoom + pan[1])
+    let bounds = board_frame_bounds(cols, rows, size, w, h, zoom, yaw);
+    let viewport = board_viewport(w, h);
+    (
+        (viewport[0] + viewport[2] - bounds[0] - bounds[2]) * 0.5 + pan[0],
+        (viewport[1] + viewport[3] - bounds[1] - bounds[3]) * 0.5 + pan[1],
+    )
 }
 
 pub fn hex_to_screen(
@@ -137,6 +296,204 @@ pub fn blade_view_proj(center: Axial, size: f32, aspect: f32) -> Mat4 {
 mod tests {
     use super::*;
 
+    // CPU mirror of hunt.wgsl, checked against the shader source below.
+    fn depth_at(p: [f32; 3], params: [f32; 4]) -> f32 {
+        0.5 - ((p[0] - params[0]) + (p[1] - params[1]) + (p[2] - params[2])) * params[3]
+    }
+
+    fn assert_inside_depth_range(p: [f32; 3], params: [f32; 4]) {
+        let depth = depth_at(p, params);
+        assert!(
+            depth > 0.01 && depth < 0.99,
+            "vertex {p:?} hit a clip plane: {depth}, depth parameters {params:?}"
+        );
+    }
+
+    #[test]
+    fn depth_is_linear_along_the_isometric_view_ray() {
+        let params = depth_origin_scale([1000.0, 0.0, 800.0], 2000.0);
+        let far = [1100.0, 50.0, 900.0];
+        let near = [1140.0, 90.0, 940.0];
+        assert_eq!(
+            world_to_iso(far[0], far[1], far[2]),
+            world_to_iso(near[0], near[1], near[2]),
+            "points on the same view ray must project to the same pixel"
+        );
+        assert!(depth_at(near, params) < depth_at(far, params));
+        let middle = [1120.0, 70.0, 920.0];
+        let interpolated = (depth_at(far, params) + depth_at(near, params)) * 0.5;
+        assert!((depth_at(middle, params) - interpolated).abs() < 1e-6);
+    }
+
+    #[test]
+    fn encounter_geometry_keeps_distinct_unclipped_depths_at_every_yaw() {
+        use crate::combat::Terrain;
+
+        let prism = crate::prism::unit_hex_prism([1.0; 4]);
+        for encounter in crate::catalog::ENCOUNTERS {
+            // Narrow/mobile through large desktop scales.
+            for size in [1.0, 12.0, 24.0, 43.0, 62.0] {
+                for yaw in 0..4 {
+                    let params = board_depth_origin_scale(encounter.cols, encounter.rows, size, yaw);
+                    let ground_top = -size * 0.12 + board_ground_height(size);
+                    for q in 0..encounter.cols {
+                        for r in 0..encounter.rows {
+                            let plinth = board_ground_world(Axial::new(q, r), size, yaw);
+                            for vertex in &prism.vertices {
+                                let p = hunt_vertex_world(
+                                    plinth, board_ground_height(size), BOARD_PRISM_POSE, vertex.position,
+                                );
+                                assert_inside_depth_range(p, params);
+                            }
+                        }
+                    }
+                    for q in 0..encounter.cols {
+                        for r in 0..encounter.rows {
+                            let (x, z) = axial_to_world_yaw(Axial::new(q, r), size, yaw);
+                            for terrain in [Terrain::Water, Terrain::Mud, Terrain::Grass, Terrain::Ruin] {
+                                let height = terrain_height(terrain, size).max(0.04);
+                                for vertex in &prism.vertices {
+                                    let [vx, vy, vz] = vertex.position;
+                                    let p = [x + vx * size * 0.92, vy * height, z + vz * size * 0.92];
+                                    assert_inside_depth_range(p, params);
+                                    // Ground at this exact screen pixel is farther along
+                                    // the same view ray, including at both board edges.
+                                    let dy = p[1] - ground_top;
+                                    let ground = [p[0] - dy, ground_top, p[2] - dy];
+                                    assert!(depth_at(p, params) < depth_at(ground, params));
+                                }
+                            }
+                            // Conservative animated model envelope at every cell,
+                            // including off-board limbs on the outermost cells.
+                            for dx in [-2.0, 2.0] {
+                                for dy in [-2.0, 4.0] {
+                                    for dz in [-2.0, 2.0] {
+                                        assert_inside_depth_range([x + dx * size, dy * size, z + dz * size], params);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn depth_normalization_preserves_board_and_world_party_scales() {
+        for yaw in 0..4 {
+            let small = board_depth_origin_scale(13, 10, 24.0, yaw);
+            let large = board_depth_origin_scale(13, 10, 62.0, yaw);
+            let (x, z) = axial_to_world_yaw(Axial::new(12, 9), 1.0, yaw);
+            assert!((depth_at([x * 24.0, 24.0, z * 24.0], small)
+                - depth_at([x * 62.0, 62.0, z * 62.0], large)).abs() < 1e-6);
+        }
+        let scale = 1.35;
+        for bob in [-1.0, 0.0, 1.0] {
+            let params = depth_origin_scale([0.0, bob, 0.0], scale * 8.0);
+            for x in [-2.0, 2.0] {
+                for y in [-2.0, 4.0] {
+                    for z in [-2.0, 2.0] {
+                        assert_inside_depth_range([x * scale, y * scale + bob, z * scale], params);
+                    }
+                }
+            }
+            assert_eq!(depth_at([0.0, bob, 0.0], params), 0.5);
+        }
+    }
+
+    #[test]
+    fn hunt_shader_uses_the_same_unclamped_depth_projection() {
+        let source = include_str!("../assets/hunt.wgsl")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(source.contains("depth_origin_scale: vec4<f32>"));
+        assert!(source.contains(
+            "let depth = 0.5 - dot(p - globals.depth_origin_scale.xyz, vec3<f32>(1.0)) * globals.depth_origin_scale.w;"
+        ));
+        assert!(source.contains("o.clip = vec4<f32>(ndc_x, ndc_y, depth, 1.0);"));
+    }
+
+    #[test]
+    fn fitted_encounters_clear_the_hud_at_every_yaw_and_viewport() {
+        for (w, h) in [(320.0, 568.0), (390.0, 844.0), (800.0, 600.0), (1280.0, 720.0),
+            (1280.0, 800.0), (1920.0, 1080.0), (2560.0, 1440.0)] {
+            let viewport = board_viewport(w, h);
+            let assert_visible = |x: f32, y: f32| {
+                assert!(x >= viewport[0] - 0.01 && x <= viewport[2] + 0.01,
+                    "x={x} outside {viewport:?} on {w}x{h}");
+                assert!(y >= viewport[1] - 0.01 && y <= viewport[3] + 0.01,
+                    "y={y} outside {viewport:?} on {w}x{h}");
+            };
+            for encounter in crate::catalog::ENCOUNTERS {
+                let size = board_size(encounter.cols, encounter.rows, w, h);
+                for yaw in 0..4 {
+                    let zoom_cap = board_zoom_max(encounter.cols, encounter.rows, w, h, yaw);
+                    assert!(
+                        zoom_cap + 1e-3 >= 1.05,
+                        "fit zoom 1.05 must remain legal on {w}x{h} yaw {yaw}, cap={zoom_cap}"
+                    );
+                    // Minimum, new battle, Continue's default zoom, and the per-angle cap.
+                    for zoom in [crate::game::COMBAT_ZOOM_MIN, 1.0, 1.05, zoom_cap] {
+                        let (ox, oy) = camera_origin(encounter.cols, encounter.rows,
+                            size, w, h, [0.0, 0.0], zoom, yaw);
+                        for q in 0..encounter.cols {
+                            for r in 0..encounter.rows {
+                                let (x, z) = axial_to_world_yaw(Axial::new(q, r), size, yaw);
+                                // A prism and an animated fighter fit inside this
+                                // envelope; project it independently of the fit math.
+                                for dx in [-size, size] {
+                                    for y in [0.0, size * 3.0] {
+                                        for dz in [-size, size] {
+                                            let (sx, sy) = world_to_iso(x + dx, y, z + dz);
+                                            assert_visible(ox + sx * zoom, oy + sy * zoom);
+                                        }
+                                    }
+                                }
+                                // Screen-space overlays also retain a generous margin.
+                                let (sx, sy) = world_to_iso(x, size * 0.4, z);
+                                let (px, py) = (ox + sx * zoom, oy + sy * zoom);
+                                assert_visible(px - w * 0.04, py - h * 0.12);
+                                assert_visible(px + w * 0.04, py);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fitted_projection_and_picking_agree_after_pan_zoom_and_rotation() {
+        for (w, h) in [(390.0, 844.0), (800.0, 600.0), (1280.0, 800.0), (1920.0, 1080.0)] {
+            for encounter in crate::catalog::ENCOUNTERS {
+                let size = board_size(encounter.cols, encounter.rows, w, h);
+                for yaw in 0..4 {
+                    for zoom in [crate::game::COMBAT_ZOOM_MIN, 1.0, crate::game::COMBAT_ZOOM_MAX] {
+                        for pan in [[0.0, 0.0], [83.0, -47.0]] {
+                            for q in 0..encounter.cols {
+                                for r in 0..encounter.rows {
+                                    let hex = Axial::new(q, r);
+                                    let p = hex_to_screen(hex, w, h, encounter.cols, encounter.rows,
+                                        pan, zoom, size * 0.14, yaw);
+                                    assert_eq!(pick_screen(p[0] * w, p[1] * h, w, h,
+                                        encounter.cols, encounter.rows, pan, zoom, yaw), Some(hex));
+                                }
+                            }
+                            let centered = camera_origin(encounter.cols, encounter.rows,
+                                size, w, h, [0.0, 0.0], zoom, yaw);
+                            let panned = camera_origin(encounter.cols, encounter.rows,
+                                size, w, h, pan, zoom, yaw);
+                            assert!((panned.0 - centered.0 - pan[0]).abs() < 1e-4);
+                            assert!((panned.1 - centered.1 - pan[1]).abs() < 1e-4);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn iso_roundtrip() {
         let (sx, sy) = world_to_iso(3.0, 1.0, 2.0);
@@ -160,6 +517,134 @@ mod tests {
             let (bx, bz) = rotate_yaw_inv(rx, rz, y);
             assert!((bx - x).abs() < 1e-5);
             assert!((bz - z).abs() < 1e-5);
+        }
+    }
+
+    /// Top-face outline in world XZ of one prism instance, exactly as hunt.wgsl places it.
+    fn top_outline(prism: &crate::prism::Mesh, world: [f32; 4], height: f32) -> Vec<(f32, f32)> {
+        let mut ring: Vec<(f32, f32)> = Vec::new();
+        for v in &prism.vertices {
+            let [x, y, z] = v.position;
+            if (y - 1.0).abs() > 1e-6 || (x * x + z * z) < 1e-6 {
+                continue;
+            }
+            let p = hunt_vertex_world(world, height, BOARD_PRISM_POSE, v.position);
+            if !ring.iter().any(|q| (q.0 - p[0]).abs() < 1e-4 && (q.1 - p[2]).abs() < 1e-4) {
+                ring.push((p[0], p[2]));
+            }
+        }
+        let (cx, cz) = (world[0], world[2]);
+        ring.sort_by(|a, b| {
+            let ta = (a.1 - cz).atan2(a.0 - cx);
+            let tb = (b.1 - cz).atan2(b.0 - cx);
+            ta.partial_cmp(&tb).unwrap()
+        });
+        assert_eq!(ring.len(), 6, "prism top must be a hexagon");
+        ring
+    }
+
+    fn inside_convex(poly: &[(f32, f32)], p: (f32, f32), eps: f32) -> bool {
+        (0..poly.len()).all(|i| {
+            let a = poly[i];
+            let b = poly[(i + 1) % poly.len()];
+            let cross = (b.0 - a.0) * (p.1 - a.1) - (b.1 - a.1) * (p.0 - a.0);
+            cross >= -eps
+        })
+    }
+
+    /// The ground must sit under every tile and close every seam between tiles,
+    /// using the same instance transforms the renderer binds (board.rs).
+    #[test]
+    fn ground_plate_covers_every_tile_at_every_yaw() {
+        use crate::hex::HEX_DIRS;
+        let prism = crate::prism::unit_hex_prism([1.0; 4]);
+        for encounter in crate::catalog::ENCOUNTERS {
+            let (cols, rows) = (encounter.cols, encounter.rows);
+            let cells: Vec<Axial> = (0..rows)
+                .flat_map(|r| (0..cols).map(move |q| Axial::new(q, r)))
+                .collect();
+            let on_board = |h: Axial| h.q >= 0 && h.q < cols && h.r >= 0 && h.r < rows;
+            for size in [1.0, 12.0, 24.0, 43.0, 62.0] {
+                let eps = size * 1e-4;
+                for yaw in 0..4 {
+                    let ground: Vec<Vec<(f32, f32)>> = cells
+                        .iter()
+                        .map(|h| top_outline(&prism, board_ground_world(*h, size, yaw), board_ground_height(size)))
+                        .collect();
+                    let covered = |p: (f32, f32)| ground.iter().any(|g| inside_convex(g, p, eps));
+                    for &h in &cells {
+                        // Every tile top corner, at the tile's own instance transform.
+                        for (x, z) in top_outline(&prism, board_tile_world(h, size, yaw), size * 0.12) {
+                            assert!(covered((x, z)), "tile ({},{}) corner off the ground at yaw {yaw}", h.q, h.r);
+                        }
+                        // Seams: midpoints to each neighbor and the three-cell junctions.
+                        let c = board_tile_world(h, size, yaw);
+                        for i in 0..6 {
+                            let n = h.add(HEX_DIRS[i]);
+                            let m = h.add(HEX_DIRS[(i + 1) % 6]);
+                            if !on_board(n) {
+                                continue;
+                            }
+                            let cn = board_tile_world(n, size, yaw);
+                            let mid = ((c[0] + cn[0]) * 0.5, (c[2] + cn[2]) * 0.5);
+                            assert!(covered(mid), "seam ({},{})-({},{}) open at yaw {yaw}", h.q, h.r, n.q, n.r);
+                            if on_board(m) {
+                                let cm = board_tile_world(m, size, yaw);
+                                let tri = ((c[0] + cn[0] + cm[0]) / 3.0, (c[2] + cn[2] + cm[2]) / 3.0);
+                                assert!(covered(tri), "junction at ({},{}) open at yaw {yaw}", h.q, h.r);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The shader mirror must agree with axial placement and the prism mesh.
+    #[test]
+    fn hunt_vertex_world_matches_tile_placement() {
+        for yaw in 0..4 {
+            let h = Axial::new(3, 2);
+            let w = board_tile_world(h, 10.0, yaw);
+            let (x, z) = axial_to_world_yaw(h, 10.0, yaw);
+            let p = hunt_vertex_world(w, 2.0, BOARD_PRISM_POSE, [0.0, 1.0, 1.0]);
+            assert!((p[0] - x).abs() < 1e-4 && (p[1] - 2.0).abs() < 1e-4);
+            assert!((p[2] - (z + 10.0 * TILE_SCALE)).abs() < 1e-4);
+        }
+    }
+
+    #[test]
+    fn zoom_max_keeps_the_framed_board_inside_the_hud() {
+        for (w, h) in [(320.0, 568.0), (390.0, 844.0), (800.0, 600.0), (1280.0, 720.0),
+            (1280.0, 800.0), (1920.0, 1080.0), (2560.0, 1440.0)] {
+            let viewport = board_viewport(w, h);
+            for encounter in crate::catalog::ENCOUNTERS {
+                let size = board_size(encounter.cols, encounter.rows, w, h);
+                for yaw in 0..4 {
+                    let cap = board_zoom_max(encounter.cols, encounter.rows, w, h, yaw);
+                    assert!(cap + 1e-3 >= 1.05, "cap {cap} drops the 1.05 default on {w}x{h}");
+                    let bounds = board_frame_bounds(
+                        encounter.cols, encounter.rows, size, w, h, cap, yaw,
+                    );
+                    assert!(
+                        bounds[2] - bounds[0] <= viewport[2] - viewport[0] + 0.05,
+                        "width at cap {cap} overflows the HUD gap on {w}x{h} yaw {yaw}"
+                    );
+                    assert!(
+                        bounds[3] - bounds[1] <= viewport[3] - viewport[1] + 0.05,
+                        "height at cap {cap} overflows the HUD gap on {w}x{h} yaw {yaw}"
+                    );
+                    // A step past the cap must not still fit; otherwise the search is loose.
+                    if cap < 3.9 {
+                        let loose = board_frame_bounds(
+                            encounter.cols, encounter.rows, size, w, h, cap * 1.08, yaw,
+                        );
+                        let overflow = (loose[2] - loose[0]) > (viewport[2] - viewport[0]) + 0.05
+                            || (loose[3] - loose[1]) > (viewport[3] - viewport[1]) + 0.05;
+                        assert!(overflow, "cap {cap} is below the true fit on {w}x{h} yaw {yaw}");
+                    }
+                }
+            }
         }
     }
 }

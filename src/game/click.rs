@@ -161,7 +161,7 @@ impl Game {
         audio::music_hunt();
         self.ui = Ui {
             screen: self.ui.screen,
-            zoom: 1.18,
+            zoom: 1.0,
             ..Ui::default()
         };
         self.fx = crate::fx::Fx::default();
