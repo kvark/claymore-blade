@@ -3,9 +3,7 @@
 use super::*;
 use crate::audio;
 use crate::catalog::{self};
-use crate::combat::{
-    create_battle, current_unit, run_ai, Side,
-};
+use crate::combat::create_battle;
 use crate::dialog::{SceneId, SceneState};
 use crate::hud;
 use crate::world::{self};
@@ -150,12 +148,7 @@ impl Game {
         let seed = (self.world.hours as u32).wrapping_mul(997) + 13;
         let mut combat = create_battle(enc, &self.world.party, seed.max(1));
         combat.support_raki = combat.support_raki || self.world.raki;
-        if current_unit(&combat)
-            .map(|u| u.side == Side::Enemy)
-            .unwrap_or(false)
-        {
-            run_ai(&mut combat);
-        }
+        // An enemy-first opening plays out in paced beats from the first tick.
         self.combat = Some(combat);
         self.mode = Mode::Combat;
         audio::music_hunt();
@@ -165,8 +158,7 @@ impl Game {
             ..Ui::default()
         };
         self.fx = crate::fx::Fx::default();
-        self.enemy_tell = None;
-        self.enemy_tell_announced = false;
+        self.reset_enemy_pacing();
         self.persist();
     }
 }

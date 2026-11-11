@@ -29,8 +29,8 @@ impl Game {
             screen[1],
             combat.cols,
             combat.rows,
-            self.ui.pan,
-            self.ui.zoom,
+            self.view_camera().0,
+            self.view_camera().1,
             self.ui.yaw,
         )
     }
@@ -47,8 +47,8 @@ impl Game {
             h,
             combat.cols,
             combat.rows,
-            self.ui.pan,
-            self.ui.zoom,
+            self.view_camera().0,
+            self.view_camera().1,
             8.0,
             self.ui.yaw,
         )

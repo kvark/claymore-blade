@@ -141,7 +141,8 @@ impl Renderer {
 
     pub(super) fn pan(game: &Game, w: f32, h: f32) -> [f32; 2] {
         let s = game.fx.shake(w, h);
-        [game.ui.pan[0] + s[0], game.ui.pan[1] + s[1]]
+        let pan = game.view_camera().0;
+        [pan[0] + s[0], pan[1] + s[1]]
     }
 
     pub(super) fn tex(&self, rel: &str) -> gpu::TextureView {

@@ -7,7 +7,7 @@ mod setup;
 mod types;
 
 pub use ai::{
-    intended_strike, next_enemy_unit, peek_enemy_tell, run_ai, run_ai_prep, IntendedStrike,
+    ai_beat, intended_strike, next_enemy_unit, peek_enemy_tell, run_ai, run_ai_prep, AiBeat, IntendedStrike,
 };
 pub use resolve::act;
 pub use rules::{can_use, legal_moves, legal_targets, raki_can_help, zone_for};

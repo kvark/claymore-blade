@@ -12,8 +12,9 @@ impl Renderer {
     ) {
         let size = board_size(combat.cols, combat.rows, w, h);
         let pan = Self::pan(game, w, h);
+        let zoom = game.view_camera().1;
         let yaw = game.ui.yaw;
-        let (ox, oy) = camera_origin(combat.cols, combat.rows, size, w, h, pan, game.ui.zoom, yaw);
+        let (ox, oy) = camera_origin(combat.cols, combat.rows, size, w, h, pan, zoom, yaw);
         let (lx, lz) = rotate_yaw(0.55, -0.15, yaw);
         let actor = current_unit(combat);
         let (lamp0, lamp0c, lamp1, lamp1c) = combat_lamps(combat, actor, size, yaw, game);
@@ -22,7 +23,7 @@ impl Renderer {
             0,
             &HuntFrame {
                 globals: HuntGlobals {
-                    origin_zoom: [ox, oy, game.ui.zoom, 0.0],
+                    origin_zoom: [ox, oy, zoom, 0.0],
                     screen: [w, h, 0.0, 0.0],
                     depth_origin_scale: board_depth_origin_scale(combat.cols, combat.rows, size, yaw),
                     light_dir: [lx, 0.72, lz, 0.0],
@@ -110,12 +111,9 @@ impl Renderer {
                     + (yaw as f32) * std::f32::consts::FRAC_PI_2;
                 // Models face +Z in Blender export; nudge so they look along hex facing.
                 let face = face + std::f32::consts::PI;
-                // Vika is a slim humanoid (XZ ~0.72); scale up so body reads at hex size
-                // like wide valefor. Valefor keeps ~0.9 — playtest liked it.
-                let scale = match kind {
-                    ArchiveKind::Vika => unit_size * 1.35,
-                    ArchiveKind::Valefor => unit_size * 0.9,
-                };
+                // Vika is a slim humanoid (XZ ~0.72); scale up so body reads at hex size.
+                // Valefor (yoma) was 0.9 and read tiny at default zoom.
+                let scale = unit_size * archive_scale_mul(kind);
                 // Sit on hex top so the mesh is not buried in the prism.
                 let ground = combat
                     .terrain
@@ -204,6 +202,24 @@ impl Renderer {
     }
 }
 
+/// Archive mesh scale per hex. Vika is slim; valefor is wide.
+pub(super) const VIKA_SCALE: f32 = 1.35;
+/// Yoma body scale (was 0.9: read tiny at default zoom).
+pub(super) const VALEFOR_SCALE: f32 = 1.2;
+const VALEFOR_SCALE_BASE: f32 = 0.9;
+
+pub(super) fn archive_scale_mul(kind: ArchiveKind) -> f32 {
+    match kind {
+        ArchiveKind::Vika => VIKA_SCALE,
+        ArchiveKind::Valefor => VALEFOR_SCALE,
+    }
+}
+
+/// Fallback (no-mesh) enemy portraits grow with the yoma body bump.
+pub(crate) fn enemy_portrait_scale() -> f32 {
+    VALEFOR_SCALE / VALEFOR_SCALE_BASE
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ArchiveKind {
     Vika,
@@ -249,19 +265,20 @@ pub(super) fn terrain_tint(terrain: Terrain) -> [f32; 3] {
 
 #[cfg(test)]
 mod archive_scale_tests {
-    use super::ArchiveKind;
-
-    fn archive_scale_mul(kind: ArchiveKind) -> f32 {
-        match kind {
-            ArchiveKind::Vika => 1.35,
-            ArchiveKind::Valefor => 0.9,
-        }
-    }
+    use super::{archive_scale_mul, enemy_portrait_scale, ArchiveKind};
 
     #[test]
     fn vika_scaled_larger_than_valefor() {
         assert!(archive_scale_mul(ArchiveKind::Vika) > archive_scale_mul(ArchiveKind::Valefor));
         assert!(archive_scale_mul(ArchiveKind::Vika) >= 1.2);
+    }
+
+    #[test]
+    fn yoma_reads_bigger_and_fallback_portraits_follow() {
+        let v = archive_scale_mul(ArchiveKind::Valefor);
+        assert!(v > 0.9 && v <= 1.3, "yoma body {v}");
+        // Fallback portrait grows by the same ratio as the mesh.
+        assert!((enemy_portrait_scale() - v / 0.9).abs() < 1e-6);
     }
 }
 
