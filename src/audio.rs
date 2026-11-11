@@ -14,7 +14,7 @@ pub fn play(name: &str) {
         if let Ok(el) = web_sys::HtmlAudioElement::new_with_src(&src) {
             el.set_volume(0.52);
             el.set_playback_rate(0.90 + js_sys::Math::random() * 0.20);
-            let _ = el.play();
+            play_quietly(&el);
         }
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -35,8 +35,30 @@ pub fn error() {
     play("error");
 }
 
+/// `play()` returns a promise that rejects on autoplay blocks or a missing /
+/// undecodable source; swallow it so the console stays clean.
+#[cfg(target_arch = "wasm32")]
+fn play_quietly(el: &web_sys::HtmlAudioElement) {
+    use wasm_bindgen::closure::Closure;
+    if let Ok(promise) = el.play() {
+        thread_local! {
+            static IGNORE: Closure<dyn FnMut(wasm_bindgen::JsValue)> =
+                Closure::new(|_err: wasm_bindgen::JsValue| {});
+        }
+        IGNORE.with(|ignore| {
+            let _ = promise.catch(ignore);
+        });
+    }
+}
+
+/// Bed tracks actually shipped under `assets/kenney/music/` (copied to the
+/// web bundle with the rest of `assets/kenney`). None are checked in yet, so
+/// every bed is silent; add a name here when its `.ogg` lands.
+pub const MUSIC_TRACKS: &[&str] = &[];
+
 /// Start a looping bed track. Names map to `assets/kenney/music/{name}.ogg`.
-/// Preferred island beds: `sad-descent`, `infinite-descent`, `flowing-rocks`, `retro-mystic`, `sad-town`.
+/// Tracks not in [`MUSIC_TRACKS`] are a silent no-op (no request, no 404).
+/// Wanted beds: `sad-descent`, `infinite-descent`, `sad-town`, `game-over`.
 pub fn music(name: &str) {
     #[cfg(target_arch = "wasm32")]
     {
@@ -45,11 +67,14 @@ pub fn music(name: &str) {
             if let Some(prev) = slot.borrow_mut().take() {
                 let _ = prev.pause();
             }
+            if !MUSIC_TRACKS.contains(&name) {
+                return;
+            }
             let src = format!("kenney/music/{name}.ogg");
             if let Ok(el) = web_sys::HtmlAudioElement::new_with_src(&src) {
                 el.set_loop(true);
                 el.set_volume(0.28);
-                let _ = el.play();
+                play_quietly(&el);
                 *slot.borrow_mut() = Some(el);
             }
         });
@@ -89,4 +114,26 @@ pub fn music_town() {
 /// Defeat / late-beacon sting (loops until stopped).
 pub fn music_defeat() {
     music("game-over");
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn listed_music_tracks_exist() {
+        for name in super::MUSIC_TRACKS {
+            let path = format!("assets/kenney/music/{name}.ogg");
+            assert!(std::path::Path::new(&path).exists(), "{path} missing");
+        }
+    }
+
+    #[test]
+    fn sfx_names_exist() {
+        for name in [
+            "ui-click", "confirm", "error", "block", "chop", "close", "cloth", "draw", "hit",
+            "miss", "raise", "slash", "step",
+        ] {
+            let path = format!("assets/kenney/audio/{name}.ogg");
+            assert!(std::path::Path::new(&path).exists(), "{path} missing");
+        }
+    }
 }

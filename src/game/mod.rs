@@ -67,6 +67,27 @@ pub struct Persist {
     pub mode: Mode,
     pub combat: Option<CombatState>,
     pub result_win: Option<bool>,
+    /// Pending story scene (Raki join, recruits). Saves before this field
+    /// existed load as `None`; see [`resume_mode`].
+    #[serde(default)]
+    pub scene: Option<SceneState>,
+    /// Encounter queued behind a scene (Ophelia intro -> Gonal ripple).
+    #[serde(default)]
+    pub pending_encounter: Option<String>,
+}
+
+/// Mode to land in after CONTINUE. `Scene` / `Result` are only resumable when
+/// the scene they lead into was saved; older saves (and Result screens, whose
+/// text is not persisted) fall back to the island instead of a blank backdrop.
+pub fn resume_mode(saved: Mode, has_combat: bool, has_scene: bool) -> Mode {
+    if has_combat {
+        return Mode::Combat;
+    }
+    match saved {
+        Mode::Scene | Mode::Result if has_scene => Mode::Scene,
+        Mode::Scene | Mode::Result | Mode::Intro | Mode::Title | Mode::Combat => Mode::World,
+        other => other,
+    }
 }
 
 
@@ -193,6 +214,8 @@ impl Game {
             },
             combat: self.combat.clone(),
             result_win: self.result_win,
+            scene: self.scene.clone(),
+            pending_encounter: self.pending_encounter.clone(),
         };
         if let Ok(s) = serde_json::to_string(&blob) {
             save::write_save(&s);
@@ -219,23 +242,28 @@ impl Game {
     }
 
     pub fn continue_hunt(&mut self) {
-        if let Some(p) = save::load_save() {
-            self.world = p.world;
-            world::ensure_explored(&mut self.world);
-            self.combat = p.combat;
-            // Windups belong to the previous in-memory battle. The next combat
-            // tick reconstructs any pending enemy action from the loaded turn.
-            self.reset_enemy_pacing();
-            self.result_win = p.result_win;
-            self.mode = if self.combat.is_some() {
-                Mode::Combat
-            } else if p.mode == Mode::Intro {
-                Mode::World
-            } else {
-                p.mode
-            };
-            audio::confirm();
+        let Some(p) = save::load_save() else {
+            // Unreadable / vanished save: stay on the title with NEW HUNT only.
+            self.has_save = false;
+            return;
+        };
+        self.world = p.world;
+        world::ensure_explored(&mut self.world);
+        self.combat = p.combat;
+        // Windups belong to the previous in-memory battle. The next combat
+        // tick reconstructs any pending enemy action from the loaded turn.
+        self.reset_enemy_pacing();
+        self.result_win = p.result_win;
+        self.scene = p.scene;
+        self.pending_encounter = p.pending_encounter;
+        self.mode = resume_mode(p.mode, self.combat.is_some(), self.scene.is_some());
+        if self.mode != Mode::Scene {
+            self.scene = None;
         }
+        if self.mode == Mode::World {
+            self.result_win = None;
+        }
+        audio::confirm();
     }
 
     pub fn tick(&mut self, dt: f32) {

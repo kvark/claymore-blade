@@ -75,6 +75,14 @@ impl Game {
         legal_moves(combat, &u.id)
     }
 
+    /// Window / canvas lost focus: the matching key-up and mouse-up events will
+    /// never arrive, so drop every held input. This covers island walking
+    /// (WASD / arrows), the held Shift / Space enemy fast-forward, and drag-pan.
+    pub fn focus_lost(&mut self) {
+        self.keys.clear();
+        self.ui.dragging = false;
+    }
+
     pub fn key(&mut self, code: winit::keyboard::KeyCode, down: bool) {
         if down {
             // Edge-trigger actions; key-repeat must not re-fire Wait / skills / Raise.

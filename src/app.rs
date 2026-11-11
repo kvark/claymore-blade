@@ -233,6 +233,8 @@ impl ApplicationHandler for App {
                 self.game
                     .set_combat_zoom(self.game.ui.zoom * (1.0 + dy * 0.08));
             }
+            // Native: window focus. Web: winit maps canvas blur to Focused(false).
+            WindowEvent::Focused(false) => self.game.focus_lost(),
             WindowEvent::RedrawRequested => self.redraw(),
             _ => {}
         }

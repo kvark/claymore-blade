@@ -1098,4 +1098,24 @@ mod tests {
         resolve_pending(&mut game);
         assert!(!game.fast_forwarding(), "player turn: no x2");
     }
+
+    #[test]
+    fn focus_loss_drops_held_keys_fast_forward_and_drag() {
+        use winit::keyboard::KeyCode;
+        let mut game = adjacent_yoma(false);
+        game.combat_act(PlayerAction::Wait);
+        game.key(KeyCode::ShiftLeft, true);
+        game.key(KeyCode::KeyD, true);
+        game.ui.dragging = true;
+        assert!(game.fast_forwarding());
+        // Alt-tab: the Shift key-up goes to another window and never arrives.
+        game.focus_lost();
+        assert!(game.keys.is_empty());
+        assert!(!game.fast_forward_held());
+        assert!(!game.fast_forwarding(), "x2 must not stick after blur");
+        assert!(!game.ui.dragging);
+        // Pressing Shift again after refocus is a fresh press.
+        game.key(KeyCode::ShiftLeft, true);
+        assert!(game.fast_forwarding());
+    }
 }
