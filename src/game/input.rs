@@ -166,12 +166,14 @@ impl Game {
                 winit::keyboard::KeyCode::KeyQ => {
                     if self.mode == Mode::Combat {
                         self.ui.yaw = (self.ui.yaw + 3) % 4; // 90° CCW
+                        self.clamp_ui_zoom();
                         audio::click();
                     }
                 }
                 winit::keyboard::KeyCode::KeyE => {
                     if self.mode == Mode::Combat {
                         self.ui.yaw = (self.ui.yaw + 1) % 4; // 90° CW
+                        self.clamp_ui_zoom();
                         audio::click();
                     }
                 }

@@ -123,15 +123,82 @@ pub fn depth_origin_scale(center: [f32; 3], extent: f32) -> [f32; 4] {
     [center[0], center[1], center[2], 0.45 / extent.max(1.0)]
 }
 
+/// Centroid of the cell-center parallelogram, in yaw-rotated world XZ.
+/// Integer mid-cell is half a row off on even-height boards and leaves a gap.
+pub fn board_ground_center(cols: i32, rows: i32, size: f32, yaw: u8) -> (f32, f32) {
+    let q = (cols - 1) as f32 * 0.5;
+    let r = (rows - 1) as f32 * 0.5;
+    let x = size * 3f32.sqrt() * (q + r * 0.5);
+    let z = size * 1.5 * r;
+    rotate_yaw(x, z, yaw)
+}
+
+/// Circumradius of the smallest pointy-top hex at the origin that contains (x, z).
+fn hex_norm(x: f32, z: f32) -> f32 {
+    let q = (3f32.sqrt() / 3.0) * x - (1.0 / 3.0) * z;
+    let r = (2.0 / 3.0) * z;
+    let s = -q - r;
+    (q.abs() + r.abs() + s.abs()) * 0.5
+}
+
+/// Circumradius of the ground plate, large enough that every tile (including
+/// unrotated hex corners) stays on the plate at all four camera yaws.
 pub fn board_ground_radius(cols: i32, rows: i32, size: f32) -> f32 {
-    size * (cols.max(rows) as f32 * 0.72 + 1.4)
+    let mut need = 0.0_f32;
+    for yaw in 0..4 {
+        let (cx, cz) = board_ground_center(cols, rows, size, yaw);
+        for q in 0..cols {
+            for r in 0..rows {
+                let (hx, hz) = axial_to_world_yaw(Axial::new(q, r), size, yaw);
+                // Terrain prisms keep identity pose, so corners are not yawed.
+                for i in 0..6 {
+                    let angle = ((60.0 * i as f32) - 30.0).to_radians();
+                    let vx = hx + size * angle.cos();
+                    let vz = hz + size * angle.sin();
+                    need = need.max(hex_norm(vx - cx, vz - cz));
+                }
+            }
+        }
+    }
+    // Small frame so the plate visibly wraps the board, as at the default yaw.
+    need * 1.12
+}
+
+/// Largest zoom at which the framed board still fits between the initiative
+/// strip and the action bar. Independent of the absolute wheel ceiling.
+pub fn board_zoom_max(cols: i32, rows: i32, w: f32, h: f32, yaw: u8) -> f32 {
+    let size = board_size(cols, rows, w, h);
+    let viewport = board_viewport(w, h);
+    let vp_w = viewport[2] - viewport[0];
+    let vp_h = viewport[3] - viewport[1];
+    let fits = |zoom: f32| {
+        let b = board_frame_bounds(cols, rows, size, w, h, zoom, yaw);
+        b[2] - b[0] <= vp_w + 0.01 && b[3] - b[1] <= vp_h + 0.01
+    };
+    // Search a generous range; callers clamp to the gameplay ceiling.
+    let mut lo = 0.25_f32;
+    let mut hi = 4.0_f32;
+    if !fits(lo) {
+        return lo;
+    }
+    if fits(hi) {
+        return hi;
+    }
+    for _ in 0..24 {
+        let mid = (lo + hi) * 0.5;
+        if fits(mid) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    lo
 }
 
 /// Depth bounds in the same yaw-rotated coordinates sent to the shader.
 /// Independent of pan/zoom: reframing the board must not change occlusion.
 pub fn board_depth_origin_scale(cols: i32, rows: i32, size: f32, yaw: u8) -> [f32; 4] {
-    let mid = Axial::new((cols - 1) / 2, (rows - 1) / 2);
-    let (cx, cz) = axial_to_world_yaw(mid, size, yaw);
+    let (cx, cz) = board_ground_center(cols, rows, size, yaw);
     let mut extent = board_ground_radius(cols, rows, size) * std::f32::consts::SQRT_2;
     for q in [0, cols - 1] {
         for r in [0, rows - 1] {
@@ -353,8 +420,13 @@ mod tests {
             for encounter in crate::catalog::ENCOUNTERS {
                 let size = board_size(encounter.cols, encounter.rows, w, h);
                 for yaw in 0..4 {
-                    // Minimum, new battle, and Continue's default zoom.
-                    for zoom in [crate::game::COMBAT_ZOOM_MIN, 1.0, 1.05] {
+                    let zoom_cap = board_zoom_max(encounter.cols, encounter.rows, w, h, yaw);
+                    assert!(
+                        zoom_cap + 1e-3 >= 1.05,
+                        "fit zoom 1.05 must remain legal on {w}x{h} yaw {yaw}, cap={zoom_cap}"
+                    );
+                    // Minimum, new battle, Continue's default zoom, and the per-angle cap.
+                    for zoom in [crate::game::COMBAT_ZOOM_MIN, 1.0, 1.05, zoom_cap] {
                         let (ox, oy) = camera_origin(encounter.cols, encounter.rows,
                             size, w, h, [0.0, 0.0], zoom, yaw);
                         for q in 0..encounter.cols {
@@ -436,6 +508,79 @@ mod tests {
             let (bx, bz) = rotate_yaw_inv(rx, rz, y);
             assert!((bx - x).abs() < 1e-5);
             assert!((bz - z).abs() < 1e-5);
+        }
+    }
+
+    fn tile_corners(hx: f32, hz: f32, size: f32) -> [(f32, f32); 6] {
+        let mut out = [(0.0, 0.0); 6];
+        for i in 0..6 {
+            let angle = ((60.0 * i as f32) - 30.0).to_radians();
+            out[i] = (hx + size * angle.cos(), hz + size * angle.sin());
+        }
+        out
+    }
+
+    #[test]
+    fn ground_plate_covers_every_tile_at_every_yaw() {
+        for encounter in crate::catalog::ENCOUNTERS {
+            for size in [1.0, 12.0, 24.0, 43.0, 62.0] {
+                let radius = board_ground_radius(encounter.cols, encounter.rows, size);
+                for yaw in 0..4 {
+                    let (cx, cz) = board_ground_center(encounter.cols, encounter.rows, size, yaw);
+                    for q in 0..encounter.cols {
+                        for r in 0..encounter.rows {
+                            let (hx, hz) = axial_to_world_yaw(Axial::new(q, r), size, yaw);
+                            // Cell center and the unrotated prism corners must sit on the plate.
+                            assert!(
+                                hex_norm(hx - cx, hz - cz) <= radius + 1e-4,
+                                "cell center ({q},{r}) yaw {yaw} misses the plate"
+                            );
+                            for (vx, vz) in tile_corners(hx, hz, size) {
+                                let reach = hex_norm(vx - cx, vz - cz);
+                                assert!(
+                                    reach <= radius + 1e-4,
+                                    "tile corner at ({q},{r}) yaw {yaw} reach {reach} > radius {radius}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn zoom_max_keeps_the_framed_board_inside_the_hud() {
+        for (w, h) in [(320.0, 568.0), (390.0, 844.0), (800.0, 600.0), (1280.0, 720.0),
+            (1280.0, 800.0), (1920.0, 1080.0), (2560.0, 1440.0)] {
+            let viewport = board_viewport(w, h);
+            for encounter in crate::catalog::ENCOUNTERS {
+                let size = board_size(encounter.cols, encounter.rows, w, h);
+                for yaw in 0..4 {
+                    let cap = board_zoom_max(encounter.cols, encounter.rows, w, h, yaw);
+                    assert!(cap + 1e-3 >= 1.05, "cap {cap} drops the 1.05 default on {w}x{h}");
+                    let bounds = board_frame_bounds(
+                        encounter.cols, encounter.rows, size, w, h, cap, yaw,
+                    );
+                    assert!(
+                        bounds[2] - bounds[0] <= viewport[2] - viewport[0] + 0.05,
+                        "width at cap {cap} overflows the HUD gap on {w}x{h} yaw {yaw}"
+                    );
+                    assert!(
+                        bounds[3] - bounds[1] <= viewport[3] - viewport[1] + 0.05,
+                        "height at cap {cap} overflows the HUD gap on {w}x{h} yaw {yaw}"
+                    );
+                    // A step past the cap must not still fit; otherwise the search is loose.
+                    if cap < 3.9 {
+                        let loose = board_frame_bounds(
+                            encounter.cols, encounter.rows, size, w, h, cap * 1.08, yaw,
+                        );
+                        let overflow = (loose[2] - loose[0]) > (viewport[2] - viewport[0]) + 0.05
+                            || (loose[3] - loose[1]) > (viewport[3] - viewport[1]) + 0.05;
+                        assert!(overflow, "cap {cap} is below the true fit on {w}x{h} yaw {yaw}");
+                    }
+                }
+            }
         }
     }
 }

@@ -34,9 +34,9 @@ impl Renderer {
             },
         );
         rc.bind_vertex(0, self.prism.into());
-        // Dark ground disc under the prism grid so gaps / lavapipe void do not read as pure black.
-        let mid = crate::hex::Axial::new((combat.cols - 1) / 2, (combat.rows - 1) / 2);
-        let (gx, gz) = axial_to_world_yaw(mid, size, yaw);
+        // Dark ground plate under the prism grid so gaps / lavapipe void do not read as pure black.
+        // Center and radius come from the board's hex extents so every tile stays covered at all yaws.
+        let (gx, gz) = board_ground_center(combat.cols, combat.rows, size, yaw);
         let ground_r = board_ground_radius(combat.cols, combat.rows, size);
         rc.bind(
             1,

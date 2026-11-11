@@ -174,6 +174,7 @@ impl ApplicationHandler for App {
                     renderer.resize(context, screen);
                     context.reconfigure_surface(surface, surface_config(size));
                     self.game.ui.screen = [screen.width as f32, screen.height as f32];
+                    self.game.clamp_ui_zoom();
                 }
             }
             WindowEvent::KeyboardInput { event, .. } => {
@@ -229,7 +230,8 @@ impl ApplicationHandler for App {
                     MouseScrollDelta::LineDelta(_, y) => y,
                     MouseScrollDelta::PixelDelta(p) => p.y as f32 * 0.04,
                 };
-                self.game.ui.zoom = crate::game::clamp_combat_zoom(self.game.ui.zoom * (1.0 + dy * 0.08));
+                self.game
+                    .set_combat_zoom(self.game.ui.zoom * (1.0 + dy * 0.08));
             }
             WindowEvent::RedrawRequested => self.redraw(),
             _ => {}
