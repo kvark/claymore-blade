@@ -22,6 +22,19 @@ pub const CUTIN_CAP_SLACK: f32 = 0.10;
 /// Fraction of the way the clawing yoma drifts toward the board center.
 pub const CUTIN_DRIFT: f32 = 0.22;
 
+/// Enemy-phase speed while the player holds the fast-forward key.
+pub const FAST_FORWARD: f32 = 2.0;
+
+/// Extra presentation time to skip this frame so beats, windups and the
+/// cut-in all run `FAST_FORWARD`x while held (real-time otherwise).
+pub fn fast_forward_skip(held: bool, enemy_phase: bool, dt: f32) -> f32 {
+    if held && enemy_phase {
+        dt.max(0.0) * (FAST_FORWARD - 1.0)
+    } else {
+        0.0
+    }
+}
+
 /// When the next enemy beat fires, given the time the turn reached an enemy.
 pub fn next_beat_at(now: f32) -> f32 {
     now + ENEMY_BEAT
@@ -173,6 +186,16 @@ fn hash(i: u32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fast_forward_only_skips_time_while_held_in_enemy_phase() {
+        assert_eq!(fast_forward_skip(false, true, 0.016), 0.0);
+        assert_eq!(fast_forward_skip(true, false, 0.016), 0.0);
+        let skip = fast_forward_skip(true, true, 0.016);
+        assert!((skip - 0.016 * (FAST_FORWARD - 1.0)).abs() < 1e-7);
+        assert!((FAST_FORWARD - 2.0).abs() < 1e-6, "about 2x");
+        assert_eq!(fast_forward_skip(true, true, -1.0), 0.0);
+    }
 
     #[test]
     fn beat_spacing_is_point_three_seconds() {

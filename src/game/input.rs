@@ -136,26 +136,23 @@ impl Game {
                 }
                 winit::keyboard::KeyCode::Digit1 | winit::keyboard::KeyCode::Numpad1 => {
                     if self.mode == Mode::Combat {
-                        audio::click();
-                        self.ui.selected_skill = Some("cut".into());
+                        self.select_skill("cut");
                     }
                 }
                 winit::keyboard::KeyCode::Digit2 | winit::keyboard::KeyCode::Numpad2 => {
                     if self.mode == Mode::Combat {
-                        audio::click();
-                        self.ui.selected_skill = Some("guard".into());
+                        self.select_skill("guard");
                     }
                 }
                 winit::keyboard::KeyCode::Digit3 | winit::keyboard::KeyCode::Numpad3 => {
-                    if self.mode == Mode::Combat {
+                    if self.mode == Mode::Combat && self.combat_input_open() {
                         audio::click();
                         self.pick_skill_slot(4);
                     }
                 }
                 winit::keyboard::KeyCode::KeyG => {
                     if self.mode == Mode::Combat {
-                        audio::click();
-                        self.ui.selected_skill = Some("guard".into());
+                        self.select_skill("guard");
                     }
                 }
                 winit::keyboard::KeyCode::KeyT => {
