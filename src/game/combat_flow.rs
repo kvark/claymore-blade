@@ -956,6 +956,58 @@ mod tests {
     }
 
     #[test]
+    fn cutin_streaks_stay_off_the_board_and_the_caption() {
+        for (yaw, max_zoom) in [(0u8, false), (1, false), (2, true), (3, true)] {
+            let mut game = waiting_for_yoma(true);
+            game.ui.yaw = yaw;
+            if max_zoom {
+                game.set_combat_zoom(10.0);
+            }
+            let cut = game.cutin.clone().unwrap();
+            let caption = game
+                .fx
+                .floaters
+                .iter()
+                .find(|f| f.plate && f.text == "YOMA REACHES")
+                .expect("first windup shows the caption")
+                .plate_rect();
+            let combat = game.combat.clone().unwrap();
+            let [w, h] = game.ui.screen;
+            let mut seen = 0;
+            for i in 0..24 {
+                game.fx.time = cut.start + super::beats::CUTIN_IN + i as f32 * 0.021;
+                let k = cut.strength(game.fx.time);
+                let (pan, zoom) = game.view_camera();
+                let tile = crate::iso::board_size(combat.cols, combat.rows, w, h) * zoom;
+                let focus = game.hex_screen(core_hex(
+                    combat.units.iter().find(|u| u.id == cut.unit_id).unwrap(),
+                ));
+                let keep = game.cutin_keep_out();
+                for l in super::beats::speed_lines(k, game.fx.time, focus, w / h, &keep) {
+                    seen += 1;
+                    let (y0, y1) = (l[1], l[1] + l[3]);
+                    // Caption plate (independent of the keep-out list).
+                    let cap_hit = l[0] < caption[0] + caption[2]
+                        && l[0] + l[2] > caption[0]
+                        && y0 < caption[1] + caption[3]
+                        && y1 > caption[1];
+                    assert!(!cap_hit, "yaw {yaw}: streak {l:?} crosses caption {caption:?}");
+                    // Every hex top: no streak within a hex radius of a centre.
+                    for (hex, _) in &combat.terrain {
+                        let c = crate::iso::hex_to_screen(
+                            *hex, w, h, combat.cols, combat.rows, pan, zoom, 0.0, yaw,
+                        );
+                        let (rx, ry) = (tile * 0.9 / w, tile * 0.5 / h);
+                        let hit = l[0] < c[0] + rx && l[0] + l[2] > c[0] - rx && y0 < c[1] + ry && y1 > c[1] - ry;
+                        assert!(!hit, "yaw {yaw}: streak {l:?} crosses hex {hex:?} at {c:?}");
+                    }
+                }
+            }
+            assert!(seen > 24 * 4, "yaw {yaw}: streaks still play in the margins ({seen})");
+        }
+    }
+
+    #[test]
     fn claw_windup_arms_cutin_push_in_then_eases_back() {
         let mut game = waiting_for_yoma(true);
         game.ui.zoom = 0.9; // room under the HUD fit cap

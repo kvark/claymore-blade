@@ -31,6 +31,29 @@ pub struct Floater {
     pub plate: bool,
 }
 
+impl Floater {
+    /// Glyph height this frame (floaters pop a little as they fade).
+    pub fn glyph_h(&self) -> f32 {
+        let a = (self.life / self.max).clamp(0.0, 1.0);
+        0.016 * (1.0 + (1.0 - a) * 0.25)
+    }
+
+    /// Normalized `[x, y, w, h]` of the ink plate behind a plated hint.
+    pub fn plate_rect(&self) -> [f32; 4] {
+        let glyph_h = self.glyph_h();
+        let glyph_w = glyph_h * 0.7;
+        let n = self.text.chars().filter(|c| *c != '\n').count() as f32;
+        let text_w = if n > 0.0 {
+            glyph_w * ((n - 1.0) * 0.85 + 1.0)
+        } else {
+            0.0
+        };
+        let pad_x = 0.010;
+        let pad_y = 0.006;
+        [self.x - pad_x, self.y - pad_y, text_w + pad_x * 2.0, glyph_h + pad_y * 2.0]
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Burst {
     pub x: f32,

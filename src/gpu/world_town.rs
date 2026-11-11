@@ -272,6 +272,7 @@ impl Renderer {
                     world: [0.0, bob_y, 0.0, scale],
                     color: [cr, cg, cb, scale],
                     pose: [face.cos(), face.sin(), 0.0, 0.04],
+                    rim: NO_RIM,
                     joints: crate::skel::identity_palette(),
                 },
             },
