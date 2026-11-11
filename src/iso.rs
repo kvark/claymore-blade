@@ -65,6 +65,12 @@ fn board_viewport(w: f32, h: f32) -> [f32; 4] {
     [w * 0.04, h * 0.15, w * 0.96, h * (crate::hud::combat_bar().wait.y - 0.05)]
 }
 
+/// Center of the HUD gap the board is framed in (pixels).
+pub fn board_viewport_center(w: f32, h: f32) -> [f32; 2] {
+    let v = board_viewport(w, h);
+    [(v[0] + v[2]) * 0.5, (v[1] + v[3]) * 0.5]
+}
+
 /// Bounds of cell centers in unit-sized, yaw-rotated isometric space.
 fn board_center_bounds(cols: i32, rows: i32, yaw: u8) -> [f32; 4] {
     let mut bounds = [f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY];

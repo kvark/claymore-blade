@@ -4,9 +4,10 @@ use super::*;
 use crate::audio;
 use crate::catalog;
 use crate::combat::{
-    act, core_hex, current_unit, legal_moves, legal_targets, peek_enemy_tell, run_ai_prep,
-    zone_for, IntendedStrike, PlayerAction, Side,
+    act, ai_beat, core_hex, current_unit, legal_moves, legal_targets, peek_enemy_tell, zone_for,
+    AiBeat, IntendedStrike, PlayerAction, Side,
 };
+use super::beats;
 use crate::dialog::{self, SceneId, SceneState};
 use crate::hud;
 use crate::world::apply_victory;
@@ -115,25 +116,15 @@ impl Game {
         let actor = current_unit(combat).map(|u| (u.id.clone(), core_hex(u)));
         let log_len = combat.log.len();
 
-        let pending_strike = {
+        {
             let Some(combat) = self.combat.as_mut() else {
                 return;
             };
             act(combat, action.clone(), true);
-            if current_unit(combat)
-                .map(|u| u.side == Side::Enemy)
-                .unwrap_or(false)
-            {
-                // Move / Raise / Wait instantly; hold the claw so the tell is readable.
-                run_ai_prep(combat)
-            } else {
-                None
-            }
-        };
-        self.juice_from_act(&before, actor, &action, log_len);
-        if let Some(strike) = pending_strike {
-            self.arm_enemy_tell(strike);
         }
+        self.juice_from_act(&before, actor, &action, log_len);
+        // Enemies take one action per beat from here (see `tick_enemy_tell`).
+        self.schedule_enemy_beat();
         if let Some(win) = self.combat.as_ref().and_then(|c| c.over) {
             let id = self.combat.as_ref().unwrap().id.clone();
             self.finish_combat_id(win, &id);
@@ -178,8 +169,15 @@ impl Game {
             unit_id: strike.unit_id.clone(),
             skill_id: strike.skill_id.clone(),
             hex: strike.hex,
-            resolve_at: self.fx.time + 0.65,
+            resolve_at: self.fx.time + beats::ENEMY_WINDUP,
         });
+        self.enemy_beat_at = None;
+        self.cutin = Some(beats::rearm_cutin(
+            self.cutin.as_ref(),
+            &strike.unit_id,
+            self.fx.time,
+            beats::ENEMY_WINDUP,
+        ));
         self.fx.play_clip(&strike.unit_id, crate::fx::FightClip::Slash);
         if !self.enemy_tell_announced {
             self.fx.emit_hint(0.50, 0.72, "YOMA REACHES");
@@ -187,29 +185,98 @@ impl Game {
         }
     }
 
+    fn enemy_turn(&self) -> bool {
+        self.combat
+            .as_ref()
+            .filter(|c| c.over.is_none())
+            .and_then(current_unit)
+            .map(|u| u.side == Side::Enemy)
+            .unwrap_or(false)
+    }
+
+    /// Queue the next paced enemy action if an enemy owns the turn; otherwise
+    /// close the enemy phase.
+    pub(super) fn schedule_enemy_beat(&mut self) {
+        if self.enemy_tell.is_some() {
+            return;
+        }
+        if self.enemy_turn() {
+            if self.enemy_beat_at.is_none() {
+                self.enemy_beat_at = Some(beats::next_beat_at(self.fx.time));
+            }
+        } else {
+            self.enemy_beat_at = None;
+            self.enemy_phase_beats = 0;
+        }
+    }
+
+    /// Fire one enemy beat: exactly one Raise / Move / Wait, or arm a claw windup.
+    fn run_enemy_beat(&mut self) {
+        self.enemy_beat_at = None;
+        let Some(combat) = self.combat.as_ref() else {
+            return;
+        };
+        let before: Vec<(String, i32, bool, Axial, i32, i32)> = combat
+            .units
+            .iter()
+            .map(|u| (u.id.clone(), u.hp, u.dead, u.origin, u.trans, u.yoki))
+            .collect();
+        let actor = current_unit(combat)
+            .filter(|u| !u.dead)
+            .map(|u| (u.id.clone(), core_hex(u)));
+        let log_len = combat.log.len();
+        self.enemy_phase_beats += 1;
+        let beat = if self.enemy_phase_beats > beats::ENEMY_PHASE_MAX_BEATS {
+            // Runaway guard: pass the turn rather than stall the fight.
+            let combat = self.combat.as_mut().unwrap();
+            act(combat, PlayerAction::Wait, false);
+            AiBeat::Acted(PlayerAction::Wait)
+        } else {
+            ai_beat(self.combat.as_mut().unwrap())
+        };
+        match beat {
+            AiBeat::Acted(action) if actor.is_some() => {
+                self.juice_from_act(&before, actor, &action, log_len);
+            }
+            AiBeat::Acted(_) => {}
+            AiBeat::Strike(strike) => {
+                self.arm_enemy_tell(strike);
+            }
+            AiBeat::Idle => {}
+        }
+        if let Some(win) = self.combat.as_ref().and_then(|c| c.over) {
+            self.finish_combat(win);
+            return;
+        }
+        self.schedule_enemy_beat();
+        self.persist();
+    }
+
     pub(super) fn tick_enemy_tell(&mut self) {
+        // Cut-in outlives the windup by its ease-out, then retires.
+        if self
+            .cutin
+            .as_ref()
+            .map(|c| self.fx.time >= c.end())
+            .unwrap_or(false)
+        {
+            self.cutin = None;
+        }
         // Soft stretch while the player can still Guard against a peeked claw.
         if self.enemy_tell.is_none() {
             // Saves contain combat state, not presentation timers. Resume an
             // enemy phase after Continue (or after discarding a stale tell).
-            let enemy_turn = self
-                .combat
-                .as_ref()
-                .and_then(current_unit)
-                .map(|u| u.side == Side::Enemy)
-                .unwrap_or(false);
-            if enemy_turn {
-                let strike = self.combat.as_mut().and_then(run_ai_prep);
-                if let Some(win) = self.combat.as_ref().and_then(|c| c.over) {
-                    self.finish_combat(win);
-                } else {
-                    if let Some(strike) = strike {
-                        self.arm_enemy_tell(strike);
-                    }
-                    self.persist();
+            if self.enemy_turn() {
+                if self.enemy_beat_at.is_none() {
+                    self.schedule_enemy_beat();
+                }
+                if beats::beat_due(self.fx.time, self.enemy_beat_at) {
+                    self.run_enemy_beat();
                 }
                 return;
             }
+            self.enemy_beat_at = None;
+            self.enemy_phase_beats = 0;
             if let Some(combat) = self.combat.as_ref() {
                 if current_unit(combat)
                     .map(|u| u.side == Side::Player)
@@ -257,6 +324,10 @@ impl Game {
             .map(|u| u.side == Side::Enemy && u.id == tell.unit_id)
             .unwrap_or(false)
         {
+            // Stale tell: ease any cut-in out from now instead of snapping.
+            if let Some(cut) = self.cutin.as_mut() {
+                cut.strike_at = cut.strike_at.min(self.fx.time);
+            }
             return;
         }
         let before: Vec<(String, i32, bool, Axial, i32, i32)> = combat
@@ -284,24 +355,15 @@ impl Game {
             id: tell.skill_id.clone(),
             hex: tell.hex,
         };
-        let pending_strike = {
+        {
             let Some(combat) = self.combat.as_mut() else {
                 return;
             };
             act(combat, action.clone(), false);
-            if current_unit(combat)
-                .map(|u| u.side == Side::Enemy)
-                .unwrap_or(false)
-            {
-                run_ai_prep(combat)
-            } else {
-                None
-            }
-        };
-        self.juice_from_act(&before, actor, &action, log_len);
-        if let Some(strike) = pending_strike {
-            self.arm_enemy_tell(strike);
         }
+        self.juice_from_act(&before, actor, &action, log_len);
+        // The claw landed: the next enemy action (if any) waits one beat.
+        self.schedule_enemy_beat();
         if let Some(win) = self.combat.as_ref().and_then(|c| c.over) {
             let id = self.combat.as_ref().unwrap().id.clone();
             self.finish_combat_id(win, &id);
@@ -526,8 +588,7 @@ impl Game {
         self.result_win = Some(win);
         self.mode = Mode::Result;
         self.combat = None;
-        self.enemy_tell = None;
-        self.enemy_tell_announced = false;
+        self.reset_enemy_pacing();
         self.persist();
     }
 }
@@ -592,6 +653,12 @@ mod tests {
         game
     }
 
+    /// Jump to the scheduled enemy beat and fire it.
+    fn fire_beat(game: &mut Game) {
+        game.fx.time = game.enemy_beat_at.expect("enemy beat scheduled");
+        game.tick_enemy_tell();
+    }
+
     fn waiting_for_yoma(raki: bool) -> Game {
         let mut game = adjacent_yoma(raki);
         game.combat_act(PlayerAction::Wait);
@@ -599,6 +666,9 @@ mod tests {
             current_unit(game.combat.as_ref().unwrap()).unwrap().id,
             "yoma-0"
         );
+        // The claw is not armed in the player's frame: the yoma gets a beat first.
+        assert!(game.enemy_tell.is_none());
+        fire_beat(&mut game);
         assert_eq!(game.enemy_tell.as_ref().unwrap().skill_id, "claw");
         game
     }
@@ -668,6 +738,7 @@ mod tests {
                 assert!(loaded.enemy_tell.is_none());
                 assert!(!loaded.enemy_tell_announced);
                 loaded.tick_enemy_tell();
+                fire_beat(&mut loaded);
                 assert_eq!(loaded.enemy_tell.as_ref().unwrap().unit_id, "yoma-0");
                 resolve_pending(&mut loaded);
                 assert_eq!(
@@ -686,6 +757,12 @@ mod tests {
         combat.units.iter_mut().find(|u| u.id == "yoma-0").unwrap().origin =
             Axial::new(8, 3);
         game.tick_enemy_tell();
+        for _ in 0..8 {
+            if game.enemy_beat_at.is_none() {
+                break;
+            }
+            fire_beat(&mut game);
+        }
         assert!(game.enemy_tell.is_none());
         let combat = game.combat.as_ref().unwrap();
         assert_eq!(current_unit(combat).unwrap().side, Side::Player);
@@ -711,8 +788,160 @@ mod tests {
             assert!(serde_json::to_string(game.combat.as_ref().unwrap()).unwrap() == before);
             if enemy_turn {
                 game.tick_enemy_tell();
+                fire_beat(&mut game);
                 assert_eq!(game.enemy_tell.as_ref().unwrap().unit_id, "yoma-0");
             }
         }
+    }
+
+    /// Clare plus two far yoma, 2 AP each (two paced steps apiece).
+    fn far_pack() -> Game {
+        let mut game = adjacent_yoma(true);
+        let mut combat = create_battle(
+            catalog::encounter("paburo-nest").unwrap(),
+            &["clare".into()],
+            7,
+        );
+        combat.units.retain(|u| u.id == "clare" || u.id == "yoma-0" || u.id == "yoma-1");
+        combat.order = vec!["clare".into(), "yoma-0".into(), "yoma-1".into()];
+        combat.turn = 0;
+        combat.support_raki = true;
+        for (_, terrain) in &mut combat.terrain {
+            *terrain = Terrain::Grass;
+        }
+        for unit in &mut combat.units {
+            unit.origin = match unit.id.as_str() {
+                "clare" => Axial::new(0, 3),
+                "yoma-0" => Axial::new(8, 1),
+                _ => Axial::new(8, 5),
+            };
+            unit.ap = 2;
+            unit.max_ap = 2;
+        }
+        game.combat = Some(combat);
+        game
+    }
+
+    fn snapshot(game: &Game) -> (usize, usize, Vec<Axial>) {
+        let c = game.combat.as_ref().unwrap();
+        (c.turn, c.log.len(), c.units.iter().map(|u| u.origin).collect())
+    }
+
+    #[test]
+    fn enemy_phase_plays_one_action_per_beat_and_queue_advances() {
+        use crate::gpu::queue_ids;
+        let mut game = far_pack();
+        let t0 = game.fx.time;
+        game.combat_act(PlayerAction::Wait);
+        // Player's Wait handed the turn over, but no enemy acted in that frame.
+        assert_eq!(current_unit(game.combat.as_ref().unwrap()).unwrap().id, "yoma-0");
+        assert!(!game.combat.as_ref().unwrap().log.iter().any(|l| l.text.starts_with("Yoma")));
+        assert!((game.enemy_beat_at.unwrap() - (t0 + ENEMY_BEAT)).abs() < 1e-5);
+
+        // Before the beat: ticking changes nothing.
+        let before = snapshot(&game);
+        game.fx.time = t0 + ENEMY_BEAT * 0.9;
+        game.tick_enemy_tell();
+        assert_eq!(snapshot(&game), before);
+
+        let mut queue_heads = vec![];
+        let mut beat_times = vec![];
+        let mut prev = snapshot(&game);
+        for _ in 0..12 {
+            let Some(at) = game.enemy_beat_at else { break };
+            beat_times.push(at);
+            fire_beat(&mut game);
+            let now = snapshot(&game);
+            // Exactly one action per beat: at most one new log line, at most one
+            // unit moved, turn index advances by at most one slot.
+            assert!(now.1 - prev.1 <= 1, "beat applied several actions");
+            let moved = now.2.iter().zip(&prev.2).filter(|(a, b)| a != b).count();
+            assert!(moved <= 1);
+            assert!(now.0 == prev.0 || now.0 == (prev.0 + 1) % 3);
+            let c = game.combat.as_ref().unwrap();
+            queue_heads.push(queue_ids(&c.order, c.turn, &c.units)[0].clone());
+            prev = now;
+        }
+        // Two paced steps per yoma (2 AP), then Clare: the head chip holds on
+        // each yoma for its beats and advances in initiative order.
+        assert_eq!(queue_heads, ["yoma-0", "yoma-1", "yoma-1", "clare"]);
+        for pair in beat_times.windows(2) {
+            assert!((pair[1] - pair[0] - ENEMY_BEAT).abs() < 1e-5, "{beat_times:?}");
+        }
+        assert!(game.enemy_beat_at.is_none());
+        assert_eq!(game.enemy_phase_beats, 0, "phase counter resets on the party turn");
+    }
+
+    #[test]
+    fn player_input_is_ignored_between_enemy_beats() {
+        let mut game = far_pack();
+        game.combat_act(PlayerAction::Wait);
+        fire_beat(&mut game);
+        let before = serde_json::to_string(game.combat.as_ref().unwrap()).unwrap();
+        let at = game.enemy_beat_at;
+        for action in [PlayerAction::Wait, PlayerAction::Raise, PlayerAction::Move(Axial::new(1, 3))] {
+            game.combat_act(action);
+        }
+        assert_eq!(serde_json::to_string(game.combat.as_ref().unwrap()).unwrap(), before);
+        assert_eq!(game.enemy_beat_at, at, "input must not reschedule the beat");
+    }
+
+    #[test]
+    fn continue_mid_enemy_phase_resumes_on_the_next_beat() {
+        let mut game = far_pack();
+        game.combat_act(PlayerAction::Wait);
+        fire_beat(&mut game); // yoma-0 moves; persisted
+        let saved = snapshot(&game);
+        let mut loaded = Game::new();
+        loaded.continue_hunt();
+        assert_eq!(snapshot(&loaded), saved);
+        assert!(loaded.enemy_beat_at.is_none());
+        loaded.tick_enemy_tell();
+        assert!(loaded.enemy_beat_at.is_some(), "Continue rebuilds the pending beat");
+        for _ in 0..8 {
+            if loaded.enemy_beat_at.is_none() {
+                break;
+            }
+            fire_beat(&mut loaded);
+        }
+        assert_eq!(current_unit(loaded.combat.as_ref().unwrap()).unwrap().id, "clare");
+    }
+
+    #[test]
+    fn claw_windup_arms_cutin_push_in_then_eases_back() {
+        let mut game = waiting_for_yoma(true);
+        game.ui.zoom = 0.9; // room under the HUD fit cap
+        let base = game.view_camera();
+        let cut = game.cutin.clone().expect("windup arms a cut-in");
+        assert_eq!(cut.unit_id, "yoma-0");
+        let tell = game.enemy_tell.as_ref().unwrap().resolve_at;
+        assert!((cut.strike_at - tell).abs() < 1e-6, "cut-in matches the windup");
+        assert!((tell - cut.start - ENEMY_WINDUP).abs() < 1e-5);
+        assert_eq!(base.1, game.ui.zoom, "push starts from the player's zoom");
+
+        game.fx.time = cut.start + super::beats::CUTIN_IN;
+        let (_, pushed) = game.view_camera();
+        assert!(pushed > game.ui.zoom * 1.05, "camera pushes in: {pushed}");
+        let (cols, rows) = {
+            let c = game.combat.as_ref().unwrap();
+            (c.cols, c.rows)
+        };
+        let [sw, sh] = game.ui.screen;
+        let cap = crate::iso::board_zoom_max(cols, rows, sw, sh, game.ui.yaw);
+        assert!(pushed <= cap.max(game.ui.zoom) * (1.0 + super::beats::CUTIN_CAP_SLACK) + 1e-4);
+        // The clawing yoma stays roughly put on screen while the board grows.
+        let y = game.combat.as_ref().unwrap().units.iter().find(|u| u.id == "yoma-0").unwrap().origin;
+        let p = game.hex_screen(y);
+        assert!(p[0] > 0.05 && p[0] < 0.95 && p[1] > 0.15 && p[1] < 0.85, "{p:?}");
+
+        resolve_pending(&mut game);
+        assert!(game.enemy_tell.is_none());
+        assert!(game.cutin.is_some(), "cut-in eases out after the strike");
+        game.fx.time = cut.end() - 0.01;
+        assert!(game.view_camera().1 > game.ui.zoom);
+        game.fx.time = cut.end();
+        game.tick_enemy_tell();
+        assert!(game.cutin.is_none());
+        assert_eq!(game.view_camera(), (game.ui.pan, game.ui.zoom));
     }
 }

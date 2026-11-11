@@ -99,44 +99,66 @@ pub fn peek_enemy_tell(state: &CombatState) -> Option<IntendedStrike> {
     intended_strike(state, u)
 }
 
-/// Raise / Move / Wait until the current enemy is ready to strike, or the enemy
-/// phase ends. Returns the pending strike without resolving it.
-pub fn run_ai_prep(state: &mut CombatState) -> Option<IntendedStrike> {
-    let mut guard = 0;
-    while state.over.is_none()
-        && current_unit(state)
-            .map(|u| u.side == Side::Enemy)
-            .unwrap_or(false)
-        && guard < 24
+/// One enemy beat: what the current enemy did (or is about to strike with).
+#[derive(Clone, Debug)]
+pub enum AiBeat {
+    /// Applied exactly one Raise / Move / Wait (the turn may have advanced).
+    Acted(PlayerAction),
+    /// The current enemy is ready to strike; nothing was applied yet.
+    Strike(IntendedStrike),
+    /// Not an enemy turn (or the fight is over); nothing to do.
+    Idle,
+}
+
+/// Apply at most one Raise / Move / Wait for the current enemy, or return the
+/// strike it is ready to make without resolving it. Callers pace these beats.
+pub fn ai_beat(state: &mut CombatState) -> AiBeat {
+    if state.over.is_some() {
+        return AiBeat::Idle;
+    }
+    let Some(u) = current_unit(state).cloned() else {
+        return AiBeat::Idle;
+    };
+    if u.side != Side::Enemy {
+        return AiBeat::Idle;
+    }
+    let Some(nearest) = nearest_foe(state, &u) else {
+        return AiBeat::Idle;
+    };
+    if let Some(strike) = intended_strike(state, &u) {
+        return AiBeat::Strike(strike);
+    }
+    if let Some(skill) = pick_ai_skill(state, &u) {
+        if u.trans < skill.trans && !u.raised_trans {
+            act(state, PlayerAction::Raise, false);
+            return AiBeat::Acted(PlayerAction::Raise);
+        }
+    }
+    let from = core_hex(&u);
+    let moves = legal_moves(state, &u.id);
+    if let Some(step) = moves
+        .into_iter()
+        .min_by_key(|h| hex_distance(*h, core_hex(&nearest)))
     {
-        guard += 1;
-        let Some(u) = current_unit(state).cloned() else {
-            break;
-        };
-        let Some(nearest) = nearest_foe(state, &u) else {
-            break;
-        };
-        if let Some(strike) = intended_strike(state, &u) {
-            return Some(strike);
+        if hex_distance(step, core_hex(&nearest)) < hex_distance(from, core_hex(&nearest)) {
+            act(state, PlayerAction::Move(step), false);
+            return AiBeat::Acted(PlayerAction::Move(step));
         }
-        if let Some(skill) = pick_ai_skill(state, &u) {
-            if u.trans < skill.trans && !u.raised_trans {
-                act(state, PlayerAction::Raise, false);
-                continue;
-            }
+    }
+    act(state, PlayerAction::Wait, false);
+    AiBeat::Acted(PlayerAction::Wait)
+}
+
+/// Raise / Move / Wait until the current enemy is ready to strike, or the enemy
+/// phase ends. Returns the pending strike without resolving it. Instant (tests,
+/// headless); the game paces the same beats with [`ai_beat`].
+pub fn run_ai_prep(state: &mut CombatState) -> Option<IntendedStrike> {
+    for _ in 0..24 {
+        match ai_beat(state) {
+            AiBeat::Acted(_) => continue,
+            AiBeat::Strike(strike) => return Some(strike),
+            AiBeat::Idle => return None,
         }
-        let from = core_hex(&u);
-        let moves = legal_moves(state, &u.id);
-        if let Some(step) = moves
-            .into_iter()
-            .min_by_key(|h| hex_distance(*h, core_hex(&nearest)))
-        {
-            if hex_distance(step, core_hex(&nearest)) < hex_distance(from, core_hex(&nearest)) {
-                act(state, PlayerAction::Move(step), false);
-                continue;
-            }
-        }
-        act(state, PlayerAction::Wait, false);
     }
     None
 }
@@ -244,5 +266,86 @@ mod tests {
         assert_eq!(tell.unit_id, yoma_id);
         assert_eq!(tell.skill_id, "claw");
         assert_eq!(tell.hex, clare_hex);
+    }
+
+    fn far_yoma_battle() -> CombatState {
+        let enc = catalog::encounter("doga-yoma").unwrap();
+        let mut s = create_battle(enc, &["clare".into()], 7);
+        let first = s
+            .units
+            .iter()
+            .find(|u| u.template_id == "yoma")
+            .unwrap()
+            .id
+            .clone();
+        s.turn = s.order.iter().position(|id| *id == first).unwrap();
+        s
+    }
+
+    #[test]
+    fn ai_beat_applies_exactly_one_action() {
+        let mut s = far_yoma_battle();
+        let actor = current_unit(&s).unwrap().id.clone();
+        let log_before = s.log.len();
+        let beat = ai_beat(&mut s);
+        assert!(matches!(beat, AiBeat::Acted(_)), "far yoma should act, got {beat:?}");
+        // One action → at most one log line from the actor and no second enemy moved.
+        assert!(s.log.len() - log_before <= 1, "{:?}", &s.log[log_before..]);
+        let moved: Vec<_> = s
+            .units
+            .iter()
+            .filter(|u| u.side == Side::Enemy && u.id != actor)
+            .filter(|u| {
+                far_yoma_battle()
+                    .units
+                    .iter()
+                    .find(|o| o.id == u.id)
+                    .map(|o| !hex_eq(o.origin, u.origin))
+                    .unwrap_or(false)
+            })
+            .collect();
+        assert!(moved.is_empty(), "another enemy acted in the same beat");
+    }
+
+    #[test]
+    fn ai_beat_idle_on_player_turn_and_strike_is_not_applied() {
+        let mut s = far_yoma_battle();
+        let i = s.order.iter().position(|id| id == "clare").unwrap();
+        s.turn = i;
+        let before = serde_json::to_string(&s).unwrap();
+        assert!(matches!(ai_beat(&mut s), AiBeat::Idle));
+        assert_eq!(serde_json::to_string(&s).unwrap(), before);
+
+        // Adjacent yoma: the beat reports the strike and leaves state untouched.
+        let mut s = far_yoma_battle();
+        let clare = s.units.iter().find(|u| u.id == "clare").unwrap().origin;
+        let actor = current_unit(&s).unwrap().id.clone();
+        s.units.iter_mut().find(|u| u.id == actor).unwrap().origin =
+            Axial::new(clare.q + 1, clare.r);
+        let before = serde_json::to_string(&s).unwrap();
+        match ai_beat(&mut s) {
+            AiBeat::Strike(st) => assert_eq!(st.unit_id, actor),
+            other => panic!("expected strike, got {other:?}"),
+        }
+        assert_eq!(serde_json::to_string(&s).unwrap(), before);
+    }
+
+    #[test]
+    fn run_ai_prep_matches_repeated_beats() {
+        let mut a = far_yoma_battle();
+        let mut b = a.clone();
+        let strike = run_ai_prep(&mut a);
+        let mut beats = 0;
+        let stepped = loop {
+            match ai_beat(&mut b) {
+                AiBeat::Acted(_) => beats += 1,
+                AiBeat::Strike(s) => break Some(s),
+                AiBeat::Idle => break None,
+            }
+            assert!(beats < 24);
+        };
+        assert!(beats >= 1);
+        assert_eq!(strike, stepped);
+        assert_eq!(serde_json::to_string(&a).unwrap(), serde_json::to_string(&b).unwrap());
     }
 }

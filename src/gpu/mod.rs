@@ -197,5 +197,7 @@ mod board;
 mod title_intro;
 mod world_town;
 mod combat_ui;
+#[cfg(test)]
+pub(crate) use combat_ui::queue_ids;
 mod panels;
 mod blit;

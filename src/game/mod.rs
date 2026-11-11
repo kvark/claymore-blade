@@ -1,5 +1,6 @@
 //! Mode machine: title -> intro -> island -> town -> hunt.
 
+pub mod beats;
 mod click;
 mod combat_flow;
 mod input;
@@ -16,6 +17,8 @@ use crate::fx::Fx;
 use crate::hex::Axial;
 use crate::world::{self, new_world, WorldState};
 use serde::{Deserialize, Serialize};
+
+pub use beats::{CutIn, ENEMY_BEAT, ENEMY_WINDUP};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Mode {
@@ -125,6 +128,12 @@ pub struct Game {
     pub enemy_tell: Option<EnemyTell>,
     /// Plated "YOMA REACHES" shown once per fight.
     pub enemy_tell_announced: bool,
+    /// When the next paced enemy action fires (None = not scheduled).
+    pub enemy_beat_at: Option<f32>,
+    /// Paced actions spent in the current enemy phase (runaway guard).
+    pub enemy_phase_beats: u32,
+    /// Claw-windup cut-in (speed lines + camera push-in), presentation only.
+    pub cutin: Option<CutIn>,
 }
 
 
@@ -158,7 +167,19 @@ impl Game {
             esc_arm: 0.0,
             enemy_tell: None,
             enemy_tell_announced: false,
+            enemy_beat_at: None,
+            enemy_phase_beats: 0,
+            cutin: None,
         }
+    }
+
+    /// Drop every enemy-phase presentation timer (new fight, Continue, result).
+    pub(crate) fn reset_enemy_pacing(&mut self) {
+        self.enemy_tell = None;
+        self.enemy_tell_announced = false;
+        self.enemy_beat_at = None;
+        self.enemy_phase_beats = 0;
+        self.cutin = None;
     }
 
     pub fn persist(&self) {
@@ -192,8 +213,7 @@ impl Game {
         self.facing_y = 0.0;
         self.walking = false;
         self.step_acc = 0.0;
-        self.enemy_tell = None;
-        self.enemy_tell_announced = false;
+        self.reset_enemy_pacing();
         audio::confirm();
         self.persist();
     }
@@ -205,8 +225,7 @@ impl Game {
             self.combat = p.combat;
             // Windups belong to the previous in-memory battle. The next combat
             // tick reconstructs any pending enemy action from the loaded turn.
-            self.enemy_tell = None;
-            self.enemy_tell_announced = false;
+            self.reset_enemy_pacing();
             self.result_win = p.result_win;
             self.mode = if self.combat.is_some() {
                 Mode::Combat
@@ -323,6 +342,48 @@ impl Game {
 
     pub fn set_combat_zoom(&mut self, zoom: f32) {
         self.ui.zoom = self.clamped_combat_zoom(zoom);
+    }
+
+    /// Camera actually drawn this frame: the player's pan/zoom plus any claw
+    /// cut-in push-in toward the clawing yoma. Returns (pan px, zoom).
+    pub fn view_camera(&self) -> ([f32; 2], f32) {
+        let (pan, zoom) = (self.ui.pan, self.ui.zoom);
+        let (Some(combat), Some(cut)) = (self.combat.as_ref(), self.cutin.as_ref()) else {
+            return (pan, zoom);
+        };
+        let k = cut.strength(self.fx.time);
+        if k <= 0.0 {
+            return (pan, zoom);
+        }
+        let Some(focus) = combat
+            .units
+            .iter()
+            .find(|u| u.id == cut.unit_id)
+            .map(core_hex)
+        else {
+            return (pan, zoom);
+        };
+        let [w, h] = [self.ui.screen[0].max(1.0), self.ui.screen[1].max(1.0)];
+        let cap = crate::iso::board_zoom_max(combat.cols, combat.rows, w, h, self.ui.yaw)
+            .min(COMBAT_ZOOM_MAX);
+        let z1 = beats::cutin_zoom(zoom, cap, k);
+        let at = |z: f32| {
+            let p = crate::iso::hex_to_screen(
+                focus, w, h, combat.cols, combat.rows, pan, z, 8.0, self.ui.yaw,
+            );
+            [p[0] * w, p[1] * h]
+        };
+        let (x0, x1) = (at(zoom), at(z1));
+        // Zoom about the yoma, then drift it a little toward the board center.
+        let center = crate::iso::board_viewport_center(w, h);
+        let drift = beats::CUTIN_DRIFT * k;
+        (
+            [
+                pan[0] + (x0[0] - x1[0]) + (center[0] - x0[0]) * drift,
+                pan[1] + (x0[1] - x1[1]) + (center[1] - x0[1]) * drift,
+            ],
+            z1,
+        )
     }
 
     pub fn clamped_combat_zoom(&self, zoom: f32) -> f32 {

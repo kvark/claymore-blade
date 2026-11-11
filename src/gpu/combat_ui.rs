@@ -14,6 +14,7 @@ impl Renderer {
         let mut rc = pass.with(&self.flat);
         let size = board_size(combat.cols, combat.rows, w, h);
         let pan = Self::pan(game, w, h);
+        let zoom = game.view_camera().1;
         let yaw = game.ui.yaw;
         let (ox, oy) = camera_origin(
             combat.cols,
@@ -22,7 +23,7 @@ impl Renderer {
             w,
             h,
             pan,
-            game.ui.zoom,
+            zoom,
             yaw,
         );
         let preview = game.preview_zone();
@@ -41,10 +42,10 @@ impl Renderer {
         for hex in &preview {
             let (wx, wz) = axial_to_world_yaw(*hex, size, yaw);
             let (sx, sy) = world_to_iso(wx, size * 0.16, wz);
-            let px = (ox + sx * game.ui.zoom) / w;
-            let py = (oy + sy * game.ui.zoom) / h;
-            let hw = (size * game.ui.zoom / w) * 1.2;
-            let hh = (size * game.ui.zoom / h) * 0.7;
+            let px = (ox + sx * zoom) / w;
+            let py = (oy + sy * zoom) / h;
+            let hw = (size * zoom / w) * 1.2;
+            let hh = (size * zoom / h) * 0.7;
             self.blit_px(
                 &mut rc,
                 self.tex(overlay),
@@ -57,10 +58,10 @@ impl Renderer {
         for hex in &threat {
             let (wx, wz) = axial_to_world_yaw(*hex, size, yaw);
             let (sx, sy) = world_to_iso(wx, size * 0.16, wz);
-            let px = (ox + sx * game.ui.zoom) / w;
-            let py = (oy + sy * game.ui.zoom) / h;
-            let hw = (size * game.ui.zoom / w) * 1.2;
-            let hh = (size * game.ui.zoom / h) * 0.7;
+            let px = (ox + sx * zoom) / w;
+            let py = (oy + sy * zoom) / h;
+            let hw = (size * zoom / w) * 1.2;
+            let hh = (size * zoom / h) * 0.7;
             self.blit_px(
                 &mut rc,
                 self.tex("kenney/ui/hex-hit.png"),
@@ -74,8 +75,8 @@ impl Renderer {
             }
             let (wx, wz) = axial_to_world_yaw(*hex, size, yaw);
             let (sx, sy) = world_to_iso(wx, size * 0.42, wz);
-            let px = (ox + sx * game.ui.zoom) / w;
-            let py = (oy + sy * game.ui.zoom) / h;
+            let px = (ox + sx * zoom) / w;
+            let py = (oy + sy * zoom) / h;
             self.blit_px(
                 &mut rc,
                 self.tex("kenney/iso/column.png"),
@@ -106,12 +107,12 @@ impl Renderer {
                     .unwrap_or(0.0);
                 // Anchor HP/selection under the mesh feet (archive sits on hex top).
                 let (sx, sy) = world_to_iso(wx, ground + size * 0.02, wz);
-                let px = (ox + sx * game.ui.zoom) / w;
-                let py = (oy + sy * game.ui.zoom) / h + bob;
-                let bar_w = (size * game.ui.zoom / w) * 0.7;
+                let px = (ox + sx * zoom) / w;
+                let py = (oy + sy * zoom) / h + bob;
+                let bar_w = (size * zoom / w) * 0.7;
                 let hp = mesh_hp_bar(px, py, bar_w);
                 if acting {
-                    let ring = (size * game.ui.zoom / w) * 0.55;
+                    let ring = (size * zoom / w) * 0.55;
                     self.blit_px(
                         &mut rc,
                         self.tex("kenney/ui/hex.png"),
@@ -135,15 +136,20 @@ impl Renderer {
                 .map(|(_, terrain)| terrain_height(*terrain, size).max(0.0))
                 .unwrap_or(0.0);
             let (sx, sy) = world_to_iso(wx, ground + size * 0.02, wz);
-            let px = (ox + sx * game.ui.zoom) / w;
-            let py = (oy + sy * game.ui.zoom) / h + bob;
+            let px = (ox + sx * zoom) / w;
+            let py = (oy + sy * zoom) / h + bob;
             let tint = if u.side == Side::Player {
                 [1.0, 1.0, 1.0, 1.0]
             } else {
                 [0.92, 0.55, 0.48, 1.0]
             };
             let aspect = self.images.get(&u.portrait).map_or(1.0, |texture| texture.aspect);
-            let portrait = board_portrait_rect(px, py, size * game.ui.zoom, w, h, aspect);
+            let body = if u.side == Side::Enemy {
+                super::board::enemy_portrait_scale()
+            } else {
+                1.0
+            };
+            let portrait = board_portrait_rect(px, py, size * zoom * body, w, h, aspect);
             self.blit(
                 &mut rc,
                 self.tex(&u.portrait),
@@ -170,6 +176,7 @@ impl Renderer {
                 BLOOD,
             );
         }
+        self.draw_claw_cutin(&mut rc, game, w, h);
         let bar = hud::combat_bar();
         self.blit_px(
             &mut rc,
@@ -308,6 +315,32 @@ impl Renderer {
         self.draw_fx(&mut rc, game);
     }
 
+    /// Anime claw cut-in: blood-ink wash + horizontal speed streaks rushing at
+    /// the clawing yoma. Drawn under the HUD so buttons and the queue stay crisp.
+    fn draw_claw_cutin(
+        &self,
+        rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>,
+        game: &Game,
+        w: f32,
+        h: f32,
+    ) {
+        let (Some(cut), Some(combat)) = (game.cutin.as_ref(), game.combat.as_ref()) else {
+            return;
+        };
+        let k = cut.strength(game.fx.time);
+        if k <= 0.01 {
+            return;
+        }
+        let Some(u) = combat.units.iter().find(|u| u.id == cut.unit_id) else {
+            return;
+        };
+        let focus = game.hex_screen(core_hex(u));
+        self.rect(rc, [0.0, 0.0, 1.0, 1.0], [0.20, 0.02, 0.03, 0.16 * k]);
+        for l in crate::game::beats::speed_lines(k, game.fx.time, focus, w / h.max(1.0)) {
+            self.rect(rc, [l[0], l[1], l[2], l[3]], [0.96, 0.93, 0.86, l[4]]);
+        }
+    }
+
     /// Compact initiative strip under the title — portraits + short names, current ringed.
     pub(super) fn draw_turn_queue(
         &self,
@@ -342,12 +375,13 @@ impl Renderer {
             let x = start_x + i as f32 * (CHIP_W + GAP);
             let portrait = [x, Y + 0.006, CHIP_W, CHIP_H * 0.72];
             if i == 0 {
-                // Same gold ring language as acting units on the board.
+                // Same gold ring language as acting units on the board; blood
+                // when a yoma owns the beat so the enemy phase reads at a glance.
                 self.blit_px(
                     rc,
                     self.tex("kenney/ui/hex.png"),
                     [x - 0.005, Y + 0.001, CHIP_W + 0.010, CHIP_H * 0.80],
-                    [0.95, 0.82, 0.35, 0.55],
+                    queue_ring_tint(u.side),
                 );
             }
             let tint = if u.side == Side::Player {
@@ -369,6 +403,14 @@ impl Renderer {
             let ty = Y + CHIP_H * 0.78;
             self.text_tint(rc, &label, tx, ty, glyph_h, ASH_TYPE);
         }
+    }
+}
+
+/// Current-chip ring: gold for the party, blood for an enemy beat.
+pub(crate) fn queue_ring_tint(side: Side) -> [f32; 4] {
+    match side {
+        Side::Player => [0.95, 0.82, 0.35, 0.55],
+        Side::Enemy => [0.86, 0.20, 0.16, 0.80],
     }
 }
 
