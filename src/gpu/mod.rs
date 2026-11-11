@@ -114,8 +114,14 @@ struct HuntLocal {
     world: [f32; 4],
     color: [f32; 4],
     pose: [f32; 4],
+    /// Rim light: rgb tint, w = strength (0 = off). Grazing normals on the
+    /// silhouette pick it up so yoma read as heavy, wet mass on dark boards.
+    rim: [f32; 4],
     joints: [[f32; 12]; 8],
 }
+
+/// `HuntLocal::rim` for every draw that does not want a silhouette rim.
+pub(super) const NO_RIM: [f32; 4] = [0.0; 4];
 
 #[derive(blade_macros::ShaderData)]
 struct HuntDraw {

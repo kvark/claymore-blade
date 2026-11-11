@@ -14,6 +14,7 @@ struct Locals {
     world: vec4<f32>,
     color: vec4<f32>,
     pose: vec4<f32>,
+    rim: vec4<f32>,
     joints: array<mat3x4<f32>, 8>,
 };
 var<uniform> locals: Locals;
@@ -89,6 +90,12 @@ fn vs_main(v: Vertex) -> VSOut {
     lit += lamp(p, n, globals.lamp0, globals.lamp0c);
     lit += lamp(p, n, globals.lamp1, globals.lamp1c);
     lit += locals.color.xyz * locals.pose.w;
+    // Silhouette rim: the iso camera looks down -(1, 1, 1), so normals
+    // perpendicular to that axis sit on the outline. Per-vertex like the rest
+    // of the lighting (plain math, fine for GLSL ES 3.0 / WebGL2).
+    let facing = abs(dot(n, vec3<f32>(0.57735027)));
+    let edge = 1.0 - facing;
+    lit += locals.rim.xyz * (locals.rim.w * edge * edge);
     var o: VSOut;
     o.clip = vec4<f32>(ndc_x, ndc_y, depth, 1.0);
     o.color = vec4<f32>(lit, 1.0);

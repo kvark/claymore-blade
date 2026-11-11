@@ -47,6 +47,7 @@ impl Renderer {
                         world: board_ground_world(*hex, size, yaw),
                         color: [0.07, 0.06, 0.05, board_ground_height(size)],
                         pose: [px, py, pz, 0.04],
+                        rim: NO_RIM,
                         joints: identity_palette(),
                     },
                 },
@@ -81,6 +82,7 @@ impl Renderer {
                         color: [color[0], color[1], color[2], height.max(0.04)],
                         // Unlit albedo lift so terrain hue survives Lavapipe + actor lamps.
                         pose: [px, py, pz, 0.14],
+                        rim: NO_RIM,
                         joints: identity_palette(),
                     },
                 },
@@ -98,7 +100,7 @@ impl Renderer {
             let acting = actor.map(|a| a.id == u.id).unwrap_or(false);
             let (clip, clip_u) = game.fx.clip_of(&u.id);
             let unit_size = if u.template_id == "raki" {
-                size * 0.72
+                size * RAKI_SIZE
             } else {
                 size
             };
@@ -114,6 +116,7 @@ impl Renderer {
                 // Vika is a slim humanoid (XZ ~0.72); scale up so body reads at hex size.
                 // Valefor (yoma) was 0.9 and read tiny at default zoom.
                 let scale = unit_size * archive_scale_mul(kind) * unit_tier_scale(&u.template_id, u.side);
+                let body = archive_body(kind);
                 // Sit on hex top so the mesh is not buried in the prism.
                 let ground = combat
                     .terrain
@@ -121,19 +124,8 @@ impl Renderer {
                     .find(|(h, _)| *h == cell)
                     .map(|(_, tr)| terrain_height(*tr, size).max(0.0))
                     .unwrap_or(0.0);
-                // Pale Clare tint reads as ink-on-ink; lift luminance a bit for vika.
-                let (cr, cg, cb) = match kind {
-                    ArchiveKind::Vika => (
-                        (u.color[0] * 1.12 + 0.06).min(1.0),
-                        (u.color[1] * 1.10 + 0.05).min(1.0),
-                        (u.color[2] * 1.08 + 0.04).min(1.0),
-                    ),
-                    ArchiveKind::Valefor => (u.color[0], u.color[1], u.color[2]),
-                };
-                let mesh_glow = glow + match kind {
-                    ArchiveKind::Vika => 0.12,
-                    ArchiveKind::Valefor => 0.0,
-                };
+                let [cr, cg, cb] = archive_tint(kind, u.color);
+                let mesh_glow = glow + body.glow;
                 // Drive archive skin with the same fight clips as procedural bones
                 // (idle bob / Cut swing / hurt flinch) via hunt.wgsl's 8-joint palette.
                 let pose_in = PoseInput {
@@ -157,9 +149,10 @@ impl Renderer {
                     1,
                     &HuntDraw {
                         locals: HuntLocal {
-                            world: [x, ground, z, scale],
+                            world: [x, ground, z, scale * body.width],
                             color: [cr, cg, cb, scale],
                             pose: [face.cos(), face.sin(), 0.0, mesh_glow],
+                            rim: body.rim,
                             joints: archive_joint_palette(&pose_in),
                         },
                     },
@@ -191,6 +184,7 @@ impl Renderer {
                             world: [0.0, 0.0, 0.0, 1.0],
                             color: [u.color[0], u.color[1], u.color[2], 1.0],
                             pose: [1.0, 0.0, 0.0, glow],
+                            rim: NO_RIM,
                             joints: joint_palette(&bones),
                         },
                     },
@@ -199,6 +193,63 @@ impl Renderer {
             }
             rc.bind_vertex(0, self.prism.into());
         }
+    }
+}
+
+/// Raki stands at about this fraction of a Claymore (a boy next to Clare).
+pub(super) const RAKI_SIZE: f32 = 0.72;
+/// Raki's clothes: warm dark brown, nowhere near Claymore silver.
+pub(super) const RAKI_TINT: [f32; 3] = [0.26, 0.13, 0.05];
+/// Negative rim = ink outline on Raki's silhouette.
+pub(super) const KID_RIM: [f32; 4] = [1.0, 1.0, 1.0, -1.2];
+
+/// Per-kind body shaping on top of the uniform archive scale.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct ArchiveBody {
+    /// XZ multiplier relative to height (> 1 = bulkier silhouette).
+    pub width: f32,
+    /// Unlit lift added to the unit glow.
+    pub glow: f32,
+    /// `HuntLocal::rim` (rgb, strength).
+    pub rim: [f32; 4],
+}
+
+pub(super) fn archive_body(kind: ArchiveKind) -> ArchiveBody {
+    match kind {
+        ArchiveKind::Vika => ArchiveBody { width: 1.0, glow: 0.12, rim: NO_RIM },
+        // A kid's frame is stockier than an adult warrior's, and an ink outline
+        // (negative rim) keeps the small dark figure from washing out under
+        // the actor lamp next to Clare.
+        ArchiveKind::Kid => ArchiveBody { width: 1.3, glow: 0.05, rim: KID_RIM },
+        ArchiveKind::Valefor => yoma_body(),
+    }
+}
+
+/// Yoma bulk at default zoom. Valefor is a thin winged frame that read as
+/// wispy red strokes; side-by-side (see PR) a wider XZ stance + darker ink
+/// albedo + blood rim read heaviest, ahead of rim-only, wide-only and the
+/// T-posed ifrit mesh.
+pub(super) const YOMA_WIDTH: f32 = 1.4;
+/// Darkens the catalog yoma colour into wet, heavy ink before lighting.
+pub(super) const YOMA_INK: [f32; 3] = [0.5, 0.4, 0.4];
+/// Blood rim on the yoma silhouette so the dark mass separates from the board.
+pub(super) const YOMA_RIM: [f32; 4] = [0.85, 0.10, 0.08, 0.8];
+
+fn yoma_body() -> ArchiveBody {
+    ArchiveBody { width: YOMA_WIDTH, glow: 0.0, rim: YOMA_RIM }
+}
+
+/// Albedo the hunt shader lights for an archive body.
+pub(super) fn archive_tint(kind: ArchiveKind, color: [f32; 3]) -> [f32; 3] {
+    match kind {
+        // Pale Clare tint reads as ink-on-ink; lift luminance a bit for vika.
+        ArchiveKind::Vika => [
+            (color[0] * 1.12 + 0.06).min(1.0),
+            (color[1] * 1.10 + 0.05).min(1.0),
+            (color[2] * 1.08 + 0.04).min(1.0),
+        ],
+        ArchiveKind::Kid => RAKI_TINT,
+        ArchiveKind::Valefor => [color[0] * YOMA_INK[0], color[1] * YOMA_INK[1], color[2] * YOMA_INK[2]],
     }
 }
 
@@ -211,7 +262,7 @@ const VALEFOR_SCALE_BASE: f32 = 0.9;
 
 pub(super) fn archive_scale_mul(kind: ArchiveKind) -> f32 {
     match kind {
-        ArchiveKind::Vika => VIKA_SCALE,
+        ArchiveKind::Vika | ArchiveKind::Kid => VIKA_SCALE,
         ArchiveKind::Valefor => VALEFOR_SCALE,
     }
 }
@@ -245,6 +296,8 @@ pub(crate) fn enemy_portrait_scale() -> f32 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ArchiveKind {
     Vika,
+    /// Raki: vika mesh, kid scale (see `RAKI_SIZE`) and his own tint.
+    Kid,
     Valefor,
 }
 
@@ -260,7 +313,8 @@ pub(super) fn archive_mesh_for<'a>(
     match template_id {
         "clare" | "miria" | "helen" | "deneve" => pick(ArchiveKind::Vika, r.vika),
         "yoma" | "yoma_stretch" => pick(ArchiveKind::Valefor, r.valefor),
-        "raki" => None, // keep procedural kid
+        // Raki: the same archive human at kid scale, in warm dark travel clothes.
+        "raki" => pick(ArchiveKind::Kid, r.vika),
         "ophelia" | "worm" => pick(ArchiveKind::Valefor, r.valefor),
         _ => match side {
             Side::Player => pick(ArchiveKind::Vika, r.vika),
@@ -302,6 +356,57 @@ mod archive_scale_tests {
         assert!(v > 0.9 && v <= 1.6, "yoma body {v}");
         // Fallback portrait grows by the same ratio as the mesh.
         assert!((enemy_portrait_scale() - v / 0.9).abs() < 1e-6);
+    }
+}
+
+#[cfg(test)]
+mod archive_look_tests {
+    use super::*;
+
+    fn luma(c: [f32; 3]) -> f32 {
+        0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+    }
+
+    #[test]
+    fn raki_is_a_small_warm_dark_figure_next_to_clare() {
+        let clare = archive_tint(ArchiveKind::Vika, [0.78, 0.80, 0.83]);
+        let raki = archive_tint(ArchiveKind::Kid, [0.62, 0.48, 0.36]);
+        // Warm clothing (red > green > blue), far darker than Claymore silver.
+        assert!(raki[0] > raki[1] && raki[1] > raki[2], "{raki:?}");
+        assert!(luma(raki) < luma(clare) * 0.35, "raki {raki:?} vs clare {clare:?}");
+        // Same human mesh scale as Clare, at kid size.
+        assert_eq!(archive_scale_mul(ArchiveKind::Kid), archive_scale_mul(ArchiveKind::Vika));
+        assert!(RAKI_SIZE > 0.6 && RAKI_SIZE < 0.8);
+        let kid = archive_body(ArchiveKind::Kid);
+        assert!(kid.width >= 1.0 && kid.width <= 1.4);
+        assert!(kid.rim[3] < 0.0, "ink outline");
+    }
+
+    #[test]
+    fn yoma_read_as_heavy_dark_mass() {
+        let body = archive_body(ArchiveKind::Valefor);
+        assert!(body.width > 1.2 && body.width <= 1.6, "bulk {}", body.width);
+        let cat = [0.54, 0.23, 0.20];
+        let ink = archive_tint(ArchiveKind::Valefor, cat);
+        assert!(luma(ink) < luma(cat) * 0.6);
+        assert!(ink[0] > ink[1] && ink[0] > ink[2], "still blood-red");
+        // Blood rim, not gold or white.
+        assert!(body.rim[3] > 0.0 && body.rim[0] > body.rim[1] * 4.0);
+        // Players keep a plain silhouette.
+        assert_eq!(archive_body(ArchiveKind::Vika).rim, NO_RIM);
+    }
+
+    #[test]
+    fn hunt_shader_rim_field_matches_hunt_local_layout() {
+        let src = include_str!("../../assets/hunt.wgsl")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(src.contains(
+            "world: vec4<f32>, color: vec4<f32>, pose: vec4<f32>, rim: vec4<f32>, joints: array<mat3x4<f32>, 8>,"
+        ));
+        assert_eq!(std::mem::size_of::<HuntLocal>(), 4 * 16 + 8 * 48);
+        assert!(src.contains("lit += locals.rim.xyz * (locals.rim.w * edge * edge);"));
     }
 }
 
@@ -398,3 +503,4 @@ fn combat_lamps(
     };
     (lamp0, lamp0c, lamp1, lamp1c)
 }
+

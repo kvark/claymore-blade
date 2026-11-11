@@ -333,8 +333,10 @@ impl Renderer {
         self.draw_fx(&mut rc, game);
     }
 
-    /// Anime claw cut-in: blood-ink wash + horizontal speed streaks rushing at
-    /// the clawing yoma. Drawn under the HUD so buttons and the queue stay crisp.
+    /// Anime claw cut-in: blood-ink vignette + letterbox bars, and horizontal
+    /// speed streaks rushing in from the edges that stop short of the board,
+    /// its units and the caption. Drawn under the HUD so buttons and the
+    /// queue stay crisp.
     fn draw_claw_cutin(
         &self,
         rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>,
@@ -353,8 +355,12 @@ impl Renderer {
             return;
         };
         let focus = game.hex_screen(core_hex(u));
-        self.rect(rc, [0.0, 0.0, 1.0, 1.0], [0.20, 0.02, 0.03, 0.16 * k]);
-        for l in crate::game::beats::speed_lines(k, game.fx.time, focus, w / h.max(1.0)) {
+        let panel_top = hud::combat_bar().wait.y - 0.03;
+        for (r, c) in crate::game::beats::cutin_wash(k, panel_top) {
+            self.rect(rc, r, c);
+        }
+        let keep_out = game.cutin_keep_out();
+        for l in crate::game::beats::speed_lines(k, game.fx.time, focus, w / h.max(1.0), &keep_out) {
             self.rect(rc, [l[0], l[1], l[2], l[3]], [0.96, 0.93, 0.86, l[4]]);
         }
     }

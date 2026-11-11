@@ -408,6 +408,37 @@ impl Game {
         self.ui.zoom = self.clamped_combat_zoom(zoom);
     }
 
+    /// Screen regions the cut-in speed streaks must not cross: every board
+    /// cell, every standing unit and any plated caption ("YOMA REACHES"),
+    /// under the camera actually drawn this frame (push-in included).
+    pub fn cutin_keep_out(&self) -> Vec<beats::Rect> {
+        let mut out = Vec::new();
+        if let Some(combat) = self.combat.as_ref() {
+            let [w, h] = [self.ui.screen[0].max(1.0), self.ui.screen[1].max(1.0)];
+            let (pan, zoom) = self.view_camera();
+            let at = |hex: Axial| {
+                crate::iso::hex_to_screen(hex, w, h, combat.cols, combat.rows, pan, zoom, 0.0, self.ui.yaw)
+            };
+            let cells: Vec<[f32; 2]> = combat.terrain.iter().map(|(hex, _)| at(*hex)).collect();
+            let units: Vec<[f32; 2]> = combat
+                .units
+                .iter()
+                .filter(|u| !u.dead)
+                .map(|u| at(core_hex(u)))
+                .collect();
+            let tile = crate::iso::board_size(combat.cols, combat.rows, w, h) * zoom;
+            out = beats::board_keep_out(&cells, &units, [tile / w, tile / h]);
+        }
+        out.extend(
+            self.fx
+                .floaters
+                .iter()
+                .filter(|f| f.plate)
+                .map(|f| beats::caption_keep_out(f.plate_rect())),
+        );
+        out
+    }
+
     /// Camera actually drawn this frame: the player's pan/zoom plus any claw
     /// cut-in push-in toward the clawing yoma. Returns (pan px, zoom).
     pub fn view_camera(&self) -> ([f32; 2], f32) {

@@ -112,21 +112,41 @@ pub fn cutin_zoom(base: f32, cap: f32, strength: f32) -> f32 {
     base + (target - base) * strength.clamp(0.0, 1.0)
 }
 
+/// Normalized screen rectangle `[x, y, w, h]`.
+pub type Rect = [f32; 4];
+
+/// Half-width of the focus clear box around the clawing yoma.
+pub const CLEAR_X: f32 = 0.13;
+/// Half-height of the focus clear box around the clawing yoma.
+pub const CLEAR_Y: f32 = 0.09;
+
+fn overlaps_y(r: &Rect, y0: f32, y1: f32) -> bool {
+    r[1] < y1 && r[1] + r[3] > y0
+}
+
 /// Horizontal anime speed streaks for the overlay pass: `[x, y, w, h, alpha]`,
-/// normalized screen units. Streaks keep clear of the focus (clawing yoma).
-pub fn speed_lines(strength: f32, time: f32, focus: [f32; 2], aspect: f32) -> Vec<[f32; 5]> {
-    const N: usize = 26;
-    const CLEAR_X: f32 = 0.13;
-    const CLEAR_Y: f32 = 0.09;
+/// normalized screen units. Streaks rush in from the screen edges toward the
+/// clawing yoma and stop at the first keep-out rect on their row (the board
+/// footprint, standing units, the caption plate), so ink never crosses the
+/// board or the "YOMA REACHES" caption. The focus box is always kept clear.
+pub fn speed_lines(
+    strength: f32,
+    time: f32,
+    focus: [f32; 2],
+    aspect: f32,
+    keep_out: &[Rect],
+) -> Vec<[f32; 5]> {
+    const N: usize = 34;
     let mut out = Vec::new();
     if strength <= 0.01 {
         return out;
     }
     let px = 1.0 / 800.0;
+    let focus_box = [focus[0] - CLEAR_X, focus[1] - CLEAR_Y, CLEAR_X * 2.0, CLEAR_Y * 2.0];
     for i in 0..N {
         let h = hash(i as u32);
         let h2 = hash(i as u32 ^ 0x9e37);
-        let y = 0.14 + 0.72 * h;
+        let y = 0.12 + 0.74 * h;
         let len = 0.10 + 0.26 * h2;
         let speed = 2.2 + 1.6 * hash(i as u32 ^ 0x51ed);
         // Streaks rush toward the focus: left half moves right, right half moves left.
@@ -137,42 +157,101 @@ pub fn speed_lines(strength: f32, time: f32, focus: [f32; 2], aspect: f32) -> Ve
         } else {
             1.0 - phase * (1.0 + len)
         };
-        let thick = (1.2 + 2.0 * h2) * px * aspect.max(0.5).min(2.0);
-        let mut seg = [x, y - thick * 0.5, len, thick];
-        // Carve the clear ellipse-ish box around the focus.
-        if (y - focus[1]).abs() < CLEAR_Y {
-            let (cl, cr) = (focus[0] - CLEAR_X, focus[0] + CLEAR_X);
-            let (sl, sr) = (seg[0], seg[0] + seg[2]);
-            if sr > cl && sl < cr {
-                // Keep the longer side outside the clear box.
-                let left = (cl - sl).max(0.0);
-                let right = (sr - cr).max(0.0);
-                if left <= 0.0 && right <= 0.0 {
-                    continue;
-                }
-                if left >= right {
-                    seg[2] = left;
-                } else {
-                    seg[0] = cr;
-                    seg[2] = right;
-                }
+        let thick = (1.4 + 2.4 * h2) * px * aspect.max(0.5).min(2.0);
+        let (y0, y1) = (y - thick * 0.5, y + thick * 0.5);
+        // Free span on this row, from the streak's own screen edge to the
+        // nearest blocker it would run into.
+        let (mut lo, mut hi) = (0.0_f32, 1.0_f32);
+        for r in keep_out.iter().chain(std::iter::once(&focus_box)) {
+            if !overlaps_y(r, y0, y1) {
+                continue;
+            }
+            if dir > 0.0 {
+                hi = hi.min(r[0]);
+            } else {
+                lo = lo.max(r[0] + r[2]);
             }
         }
-        // Clip to the screen.
-        let l = seg[0].max(0.0);
-        let r = (seg[0] + seg[2]).min(1.0);
+        let l = x.max(lo);
+        let r = (x + len).min(hi);
         if r - l < 0.01 {
             continue;
         }
-        seg[0] = l;
-        seg[2] = r - l;
-        // Ink thickens toward the screen edges, thins near the clawing yoma.
-        let mid = seg[0] + seg[2] * 0.5;
+        // Ink thickens toward the screen edges, thins as it nears the board.
+        let mid = (l + r) * 0.5;
         let far = ((mid - focus[0]).abs() / 0.35).min(1.0);
-        let alpha = strength * (0.25 + 0.35 * hash(i as u32 ^ 0x77)) * (0.35 + 0.65 * far);
-        out.push([seg[0], seg[1], seg[2], seg[3], alpha]);
+        let alpha = strength * (0.30 + 0.35 * hash(i as u32 ^ 0x77)) * (0.35 + 0.65 * far);
+        out.push([l, y0, r - l, thick, alpha]);
     }
     out
+}
+
+/// Keep-out rects for the cut-in streaks: one per board cell (its projected
+/// top face, padded) plus a taller box over every standing unit, all in
+/// normalized screen units. `cells` / `units` are screen centres at ground
+/// height; `tile` is the hex radius in normalized `[x, y]`.
+pub fn board_keep_out(cells: &[[f32; 2]], units: &[[f32; 2]], tile: [f32; 2]) -> Vec<Rect> {
+    // Iso hex top: about ±1.0 radius wide, ±0.6 tall; ruins rise ~0.6 more.
+    let (hw, down, up) = (tile[0] * 1.05, tile[1] * 0.75, tile[1] * 1.3);
+    let mut out: Vec<Rect> = cells
+        .iter()
+        .map(|c| [c[0] - hw, c[1] - up, hw * 2.0, up + down])
+        .collect();
+    // Archive bodies stand up to ~2 tiles tall (Long Yoma); wings spread wider.
+    let (uw, uup) = (tile[0] * 1.4, tile[1] * 2.6);
+    out.extend(units.iter().map(|c| [c[0] - uw, c[1] - uup, uw * 2.0, uup + down]));
+    out
+}
+
+/// Margin kept between streaks and a caption plate.
+pub const CAPTION_MARGIN: f32 = 0.012;
+
+/// Caption plate grown by `CAPTION_MARGIN` on every side.
+pub fn caption_keep_out(plate: Rect) -> Rect {
+    let m = CAPTION_MARGIN;
+    [plate[0] - m, plate[1] - m, plate[2] + m * 2.0, plate[3] + m * 2.0]
+}
+
+/// Number of stacked edge bands in the cut-in vignette.
+pub const WASH_RINGS: usize = 7;
+/// Alpha of one vignette band at full strength (bands stack at the rim).
+pub const WASH_BAND_ALPHA: f32 = 0.16;
+/// Letterbox bar height at full strength (normalized screen height).
+pub const LETTERBOX_H: f32 = 0.05;
+
+/// Blood-ink wash for the cut-in as `(rect, rgba)` quads, back to front:
+/// a red tint over everything, a red-black vignette that thickens toward the
+/// screen edges (stacked bands, darkest at the rim, bottom bands ending at the
+/// action panel `panel_top`), and a letterbox bar that slides in at the top.
+pub fn cutin_wash(strength: f32, panel_top: f32) -> Vec<(Rect, [f32; 4])> {
+    let k = strength.clamp(0.0, 1.0);
+    let mut out = Vec::new();
+    if k <= 0.01 {
+        return out;
+    }
+    out.push(([0.0, 0.0, 1.0, 1.0], [0.14, 0.0, 0.01, 0.26 * k]));
+    let ink = [0.008, 0.0, 0.001];
+    for i in 0..WASH_RINGS {
+        // Bands grow inward; their overlap stacks into a soft gradient.
+        let d = 0.035 * (i + 1) as f32;
+        let a = WASH_BAND_ALPHA * k;
+        let c = [ink[0], ink[1], ink[2], a];
+        out.push(([0.0, 0.0, 1.0, d * 0.8], c)); // top
+        out.push(([0.0, panel_top - d * 0.35, 1.0, d * 0.35], c)); // bottom, thin: near row stays lit
+        out.push(([0.0, 0.0, d, 1.0], c)); // left
+        out.push(([1.0 - d, 0.0, d, 1.0], c)); // right
+    }
+    let bar = LETTERBOX_H * k;
+    // Top bar only: the action panel already frames the bottom, and a second
+    // bar above it would clip the board's near row during the push-in.
+    out.push(([0.0, 0.0, 1.0, bar], [0.0, 0.0, 0.0, 0.9 * k]));
+    out
+}
+
+/// Peak alpha the vignette reaches at the screen edge (all bands stacked).
+pub fn wash_edge_alpha(strength: f32) -> f32 {
+    let a = WASH_BAND_ALPHA * strength.clamp(0.0, 1.0);
+    1.0 - (1.0 - a).powi(WASH_RINGS as i32)
 }
 
 fn hash(i: u32) -> f32 {
@@ -266,25 +345,93 @@ mod tests {
 
     #[test]
     fn speed_lines_scale_with_strength_and_clear_the_focus() {
-        assert!(speed_lines(0.0, 1.0, [0.5, 0.5], 1.6).is_empty());
+        assert!(speed_lines(0.0, 1.0, [0.5, 0.5], 1.6, &[]).is_empty());
         let focus = [0.5, 0.48];
         for t in [0.0, 0.17, 0.42, 0.9] {
-            let lines = speed_lines(1.0, t, focus, 1.6);
+            let lines = speed_lines(1.0, t, focus, 1.6, &[]);
             assert!(lines.len() >= 12, "t={t}: {}", lines.len());
             for l in &lines {
                 assert!(l[0] >= 0.0 && l[0] + l[2] <= 1.0 + 1e-5);
-                assert!(l[4] > 0.0 && l[4] <= 0.6 + 1e-6);
-                let cy = l[1] + l[3] * 0.5;
-                if (cy - focus[1]).abs() < 0.09 {
-                    assert!(
-                        l[0] + l[2] <= focus[0] - 0.13 + 1e-5 || l[0] >= focus[0] + 0.13 - 1e-5,
-                        "streak crosses the clawing yoma: {l:?}"
-                    );
-                }
+                assert!(l[4] > 0.0 && l[4] <= 0.65 + 1e-6);
+                let focus_box = [focus[0] - CLEAR_X, focus[1] - CLEAR_Y, CLEAR_X * 2.0, CLEAR_Y * 2.0];
+                assert!(!intersects(l, &focus_box), "streak crosses the clawing yoma: {l:?}");
             }
         }
-        let weak = speed_lines(0.3, 0.2, focus, 1.6);
-        let strong = speed_lines(1.0, 0.2, focus, 1.6);
+        let weak = speed_lines(0.3, 0.2, focus, 1.6, &[]);
+        let strong = speed_lines(1.0, 0.2, focus, 1.6, &[]);
         assert!(weak.iter().zip(&strong).all(|(a, b)| a[4] < b[4]));
+    }
+
+    fn intersects(l: &[f32; 5], r: &Rect) -> bool {
+        l[0] < r[0] + r[2] - 1e-5
+            && l[0] + l[2] > r[0] + 1e-5
+            && l[1] < r[1] + r[3]
+            && l[1] + l[3] > r[1]
+    }
+
+    #[test]
+    fn speed_lines_stop_at_the_board_and_the_caption() {
+        let focus = [0.52, 0.45];
+        let board = [0.30, 0.20, 0.42, 0.60];
+        let caption = caption_keep_out([0.49, 0.69, 0.14, 0.03]);
+        let keep = [board, caption];
+        let mut seen = 0;
+        for i in 0..60 {
+            let t = i as f32 * 0.037;
+            for l in speed_lines(1.0, t, focus, 1.6, &keep) {
+                seen += 1;
+                assert!(!intersects(&l, &board), "t={t}: streak on the board {l:?}");
+                assert!(!intersects(&l, &caption), "t={t}: streak through the caption {l:?}");
+            }
+        }
+        // Streaks still play in the margins around the board.
+        assert!(seen > 60 * 6, "only {seen} streaks");
+    }
+
+    #[test]
+    fn board_keep_out_covers_cells_and_standing_units() {
+        let cells = [[0.4, 0.5], [0.6, 0.5]];
+        let units = [[0.6, 0.5]];
+        let tile = [0.03, 0.02];
+        let keep = board_keep_out(&cells, &units, tile);
+        assert_eq!(keep.len(), 3);
+        let inside = |p: [f32; 2]| {
+            keep.iter().any(|r| p[0] >= r[0] && p[0] <= r[0] + r[2] && p[1] >= r[1] && p[1] <= r[1] + r[3])
+        };
+        // Cell centres and their hex edges.
+        for c in cells {
+            assert!(inside(c));
+            assert!(inside([c[0] - tile[0], c[1]]) && inside([c[0] + tile[0], c[1]]));
+        }
+        // A body two tiles tall over the unit hex.
+        assert!(inside([0.6, 0.5 - tile[1] * 2.4]));
+        assert!(!inside([0.4, 0.5 - tile[1] * 2.4]), "empty cells get no body box");
+    }
+
+    #[test]
+    fn cutin_wash_reads_as_a_cut_in() {
+        assert!(cutin_wash(0.0, 0.84).is_empty());
+        let full = cutin_wash(1.0, 0.84);
+        // Vignette edge is much darker than the old flat 0.16 wash.
+        assert!(wash_edge_alpha(1.0) > 0.55, "edge {}", wash_edge_alpha(1.0));
+        assert!(wash_edge_alpha(0.5) < wash_edge_alpha(1.0));
+        // Centre of the screen only gets the light red tint (board stays readable).
+        let centre = [0.5, 0.45];
+        let over_centre: Vec<_> = full
+            .iter()
+            .filter(|(r, _)| centre[0] >= r[0] && centre[0] <= r[0] + r[2] && centre[1] >= r[1] && centre[1] <= r[1] + r[3])
+            .collect();
+        assert_eq!(over_centre.len(), 1);
+        assert!(over_centre[0].1[3] <= 0.3);
+        // Bars and bands stay above the action panel.
+        for (r, c) in &full {
+            assert!(r[1] + r[3] <= 0.84 + 1e-5 || r[3] >= 1.0, "{r:?} spills under the HUD");
+            assert!(c[3] > 0.0 && c[3] <= 0.9 + 1e-6);
+            assert!(c[0] >= c[1] && c[0] >= c[2], "wash must stay blood/ink, got {c:?}");
+        }
+        // Letterbox bars slide in with strength.
+        let bar = |k: f32| cutin_wash(k, 0.84).iter().rev().next().map(|(r, _)| r[3]).unwrap();
+        assert!(bar(0.5) < bar(1.0));
+        assert!((bar(1.0) - LETTERBOX_H).abs() < 1e-6);
     }
 }
