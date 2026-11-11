@@ -272,9 +272,45 @@ impl Game {
                         self.fx.emit_mote(p[0], p[1] + 0.02);
                     }
                 }
+                self.fast_forward_enemy(dt);
                 self.tick_enemy_tell();
             }
             _ => {}
+        }
+    }
+
+    /// Fast-forward key held (Shift, or Space still down after WAIT).
+    pub fn fast_forward_held(&self) -> bool {
+        use winit::keyboard::KeyCode;
+        self.keys
+            .iter()
+            .any(|k| matches!(k, KeyCode::ShiftLeft | KeyCode::ShiftRight | KeyCode::Space))
+    }
+
+    /// True while enemy beats are paced and the fast-forward key is held.
+    pub fn fast_forwarding(&self) -> bool {
+        self.mode == Mode::Combat
+            && self.combat.as_ref().map(|c| c.over.is_none()).unwrap_or(false)
+            && !self.combat_input_open()
+            && self.fast_forward_held()
+    }
+
+    /// Pull every pending enemy-phase timer earlier so beats, the claw
+    /// windup and its cut-in envelope all play `FAST_FORWARD`x.
+    pub(super) fn fast_forward_enemy(&mut self, dt: f32) {
+        let skip = beats::fast_forward_skip(self.fast_forward_held(), self.fast_forwarding(), dt);
+        if skip <= 0.0 {
+            return;
+        }
+        if let Some(at) = self.enemy_beat_at.as_mut() {
+            *at -= skip;
+        }
+        if let Some(tell) = self.enemy_tell.as_mut() {
+            tell.resolve_at -= skip;
+        }
+        if let Some(cut) = self.cutin.as_mut() {
+            cut.start -= skip;
+            cut.strike_at -= skip;
         }
     }
 

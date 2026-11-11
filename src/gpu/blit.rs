@@ -75,6 +75,22 @@ impl Renderer {
         hot: bool,
         glyph_h: f32,
     ) {
+        self.kenney_btn_state(rc, kind, r, label, hot, glyph_h, true);
+    }
+
+    /// Button with an enabled state: a disabled plate is veiled in ink and
+    /// its label drops to dim ash, so blocked input reads at a glance.
+    pub(super) fn kenney_btn_state(
+        &self,
+        rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>,
+        kind: &str,
+        r: hud::Rect,
+        label: &str,
+        hot: bool,
+        glyph_h: f32,
+        enabled: bool,
+    ) {
+        let hot = hot && enabled;
         let tex = if hot {
             "kenney/ui/button-line.png"
         } else {
@@ -101,7 +117,11 @@ impl Renderer {
         };
         let tx = r.x + (r.w - text_w) * 0.5;
         let ty = r.y + (r.h - glyph_h) * 0.5;
-        self.text_tint(rc, label, tx, ty, glyph_h, ASH_TYPE);
+        if !enabled {
+            self.rect(rc, r.pos(), super::combat_ui::DISABLED_VEIL);
+        }
+        let ink = if enabled { ASH_TYPE } else { super::combat_ui::DISABLED_TYPE };
+        self.text_tint(rc, label, tx, ty, glyph_h, ink);
     }
 
     pub(super) fn bar(
@@ -127,7 +147,17 @@ impl Renderer {
     }
 
     pub(super) fn prompt(&self, rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>, rel: &str, x: f32, y: f32, s: f32) {
-        self.blit_px(rc, self.tex(rel), [x, y, s, s], [0.85, 0.8, 0.7, 0.95]);
+        self.prompt_state(rc, rel, x, y, s, true);
+    }
+
+    /// Key-hint chip; dimmed with its button while turn input is blocked.
+    pub(super) fn prompt_state(&self, rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>, rel: &str, x: f32, y: f32, s: f32, enabled: bool) {
+        let tint = if enabled {
+            [0.85, 0.8, 0.7, 0.95]
+        } else {
+            super::combat_ui::DISABLED_PROMPT
+        };
+        self.blit_px(rc, self.tex(rel), [x, y, s, s], tint);
     }
 
     pub(super) fn blit(&self, rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>, view: gpu::TextureView, pos: [f32; 4], tint: [f32; 4]) {

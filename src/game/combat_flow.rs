@@ -17,25 +17,39 @@ use crate::hex::{hex_eq, Axial};
 impl Game {
     pub(super) fn click_combat(&mut self, nx: f32, ny: f32, screen: [f32; 2]) {
         let bar = hud::combat_bar();
+        let open = self.combat_input_open();
         if ny > bar.wait.y {
-            if bar.wait.contains(nx, ny) {
+            if bar.forfeit.contains(nx, ny) {
+                // FALL is a retreat, not a turn action: it stays live during
+                // enemy beats, like Esc-Esc flee.
+                audio::error();
+                self.finish_combat(false);
+            } else if !open {
+                // Turn actions are dimmed while the yoma act.
+                if bar.wait.contains(nx, ny)
+                    || bar.raise.contains(nx, ny)
+                    || bar.guard.contains(nx, ny)
+                    || bar.cut.contains(nx, ny)
+                    || bar.slot.contains(nx, ny)
+                {
+                    audio::error();
+                }
+            } else if bar.wait.contains(nx, ny) {
                 audio::click();
                 self.combat_act(PlayerAction::Wait);
             } else if bar.raise.contains(nx, ny) {
                 self.combat_act(PlayerAction::Raise);
             } else if bar.guard.contains(nx, ny) {
-                audio::click();
-                self.ui.selected_skill = Some("guard".into());
+                self.select_skill("guard");
             } else if bar.cut.contains(nx, ny) {
-                audio::click();
-                self.ui.selected_skill = Some("cut".into());
+                self.select_skill("cut");
             } else if bar.slot.contains(nx, ny) {
                 audio::click();
                 self.pick_skill_slot(4);
-            } else if bar.forfeit.contains(nx, ny) {
-                audio::error();
-                self.finish_combat(false);
             }
+            return;
+        }
+        if !open {
             return;
         }
         let Some(hex) = self.pick_hex(nx, ny, screen) else {
@@ -79,6 +93,9 @@ impl Game {
     }
 
     pub(super) fn pick_skill_slot(&mut self, nth: usize) {
+        if !self.combat_input_open() {
+            return;
+        }
         let Some(combat) = self.combat.as_ref() else {
             return;
         };
@@ -92,13 +109,30 @@ impl Game {
         }
     }
 
+    /// True when the combat bar accepts turn actions (WAIT / RAISE / GUARD /
+    /// CUT / skill slot and their keys). False during enemy beats and claw
+    /// windups; the HUD dims the same buttons from this predicate.
+    pub fn combat_input_open(&self) -> bool {
+        self.mode == Mode::Combat
+            && combat_buttons_enabled(self.combat.as_ref(), self.enemy_tell.is_some())
+    }
+
+    /// Select a skill from the bar or a hotkey (no-op while enemies act).
+    pub(super) fn select_skill(&mut self, id: &str) {
+        if !self.combat_input_open() {
+            return;
+        }
+        audio::click();
+        self.ui.selected_skill = Some(id.into());
+    }
+
     pub fn combat_act(&mut self, action: PlayerAction) {
+        if !self.combat_input_open() {
+            return;
+        }
         let Some(combat) = self.combat.as_ref() else {
             return;
         };
-        if current_unit(combat).map(|u| u.side) != Some(Side::Player) {
-            return;
-        }
         let before: Vec<(String, i32, bool, Axial, i32, i32)> = combat
             .units
             .iter()
@@ -125,6 +159,10 @@ impl Game {
         self.juice_from_act(&before, actor, &action, log_len);
         // Enemies take one action per beat from here (see `tick_enemy_tell`).
         self.schedule_enemy_beat();
+        if !self.combat_input_open() {
+            // A half-picked skill must not linger over the enemy phase.
+            self.ui.selected_skill = None;
+        }
         if let Some(win) = self.combat.as_ref().and_then(|c| c.over) {
             let id = self.combat.as_ref().unwrap().id.clone();
             self.finish_combat_id(win, &id);
@@ -616,6 +654,16 @@ fn find_defender_hex(combat: &crate::combat::CombatState, text: &str) -> Option<
     best.map(|(_, hex)| hex)
 }
 
+/// Combat-bar turn actions are live only on a player's turn in a running
+/// fight with no claw windup armed. Pure so the HUD and input share it.
+pub fn combat_buttons_enabled(combat: Option<&crate::combat::CombatState>, tell_armed: bool) -> bool {
+    let Some(combat) = combat else {
+        return false;
+    };
+    combat.over.is_none()
+        && !tell_armed
+        && current_unit(combat).map(|u| u.side == Side::Player).unwrap_or(false)
+}
 
 #[cfg(test)]
 mod tests {
@@ -943,5 +991,111 @@ mod tests {
         game.tick_enemy_tell();
         assert!(game.cutin.is_none());
         assert_eq!(game.view_camera(), (game.ui.pan, game.ui.zoom));
+    }
+
+    fn center(r: hud::Rect) -> (f32, f32) {
+        (r.x + r.w * 0.5, r.y + r.h * 0.5)
+    }
+
+    #[test]
+    fn buttons_enabled_only_on_a_live_player_turn() {
+        let game = adjacent_yoma(false);
+        let combat = game.combat.as_ref().unwrap();
+        assert!(combat_buttons_enabled(Some(combat), false), "Clare's turn");
+        assert!(!combat_buttons_enabled(Some(combat), true), "claw windup armed");
+        assert!(!combat_buttons_enabled(None, false), "no fight");
+        let mut enemy = combat.clone();
+        enemy.turn = 1;
+        assert_eq!(current_unit(&enemy).unwrap().side, Side::Enemy);
+        assert!(!combat_buttons_enabled(Some(&enemy), false), "yoma beat");
+        let mut over = combat.clone();
+        over.over = Some(true);
+        assert!(!combat_buttons_enabled(Some(&over), false), "fight resolved");
+        // The Game predicate also requires combat mode.
+        assert!(game.combat_input_open());
+        let mut world = adjacent_yoma(false);
+        world.mode = Mode::World;
+        assert!(!world.combat_input_open());
+    }
+
+    #[test]
+    fn buttons_and_hotkeys_stay_blocked_through_beats_and_windup() {
+        use winit::keyboard::KeyCode;
+        for raki in [false, true] {
+            let mut game = adjacent_yoma(raki);
+            game.ui.selected_skill = Some("cut".into());
+            game.combat_act(PlayerAction::Wait);
+            assert!(!game.combat_input_open(), "enemy beat pending");
+            assert!(game.ui.selected_skill.is_none(), "half-picked skill cleared");
+            let bar = hud::combat_bar();
+            let screen = game.ui.screen;
+            for phase in ["beat", "windup"] {
+                if phase == "windup" {
+                    fire_beat(&mut game);
+                    assert!(game.enemy_tell.is_some());
+                    assert!(!game.combat_input_open(), "claw windup");
+                }
+                for key in [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::KeyG] {
+                    game.key(key, true);
+                    game.key(key, false);
+                }
+                for r in [bar.guard, bar.cut, bar.slot, bar.wait, bar.raise] {
+                    let (x, y) = center(r);
+                    game.click_combat(x, y, screen);
+                }
+                assert!(game.ui.selected_skill.is_none(), "{phase}: no skill picked");
+                assert_eq!(game.mode, Mode::Combat);
+            }
+            resolve_pending(&mut game);
+            assert!(game.combat_input_open(), "turn back to Clare; Raki={raki}");
+            game.key(KeyCode::Digit1, true);
+            assert_eq!(game.ui.selected_skill.as_deref(), Some("cut"));
+        }
+    }
+
+    #[test]
+    fn fall_stays_live_during_enemy_beats() {
+        let mut game = adjacent_yoma(false);
+        game.combat_act(PlayerAction::Wait);
+        assert!(!game.combat_input_open());
+        let (x, y) = center(hud::combat_bar().forfeit);
+        let screen = game.ui.screen;
+        game.click_combat(x, y, screen);
+        assert_ne!(game.mode, Mode::Combat, "FALL forfeits even mid enemy phase");
+    }
+
+    #[test]
+    fn holding_shift_runs_beats_windup_and_cutin_twice_as_fast() {
+        use winit::keyboard::KeyCode;
+        let mut game = adjacent_yoma(false);
+        // Not an enemy phase: holding does nothing.
+        game.keys.push(KeyCode::ShiftLeft);
+        assert!(!game.fast_forwarding());
+        game.keys.clear();
+        game.combat_act(PlayerAction::Wait);
+        let at = game.enemy_beat_at.unwrap();
+        game.fast_forward_enemy(0.05);
+        assert_eq!(game.enemy_beat_at, Some(at), "real-time when not held");
+        game.keys.push(KeyCode::ShiftLeft);
+        assert!(game.fast_forwarding());
+        let dt = 0.05;
+        game.fast_forward_enemy(dt);
+        let skip = dt * (beats::FAST_FORWARD - 1.0);
+        assert!((game.enemy_beat_at.unwrap() - (at - skip)).abs() < 1e-6);
+        // Windup and its cut-in shift together, keeping the envelope intact.
+        fire_beat(&mut game);
+        let tell = game.enemy_tell.as_ref().unwrap().resolve_at;
+        let cut = game.cutin.clone().unwrap();
+        game.fast_forward_enemy(dt);
+        assert!((game.enemy_tell.as_ref().unwrap().resolve_at - (tell - skip)).abs() < 1e-6);
+        let c2 = game.cutin.as_ref().unwrap();
+        assert!((c2.start - (cut.start - skip)).abs() < 1e-6);
+        assert!((c2.strike_at - (cut.strike_at - skip)).abs() < 1e-6);
+        // Space still held after WAIT also counts.
+        game.keys.clear();
+        game.keys.push(KeyCode::Space);
+        assert!(game.fast_forwarding());
+        resolve_pending(&mut game);
+        assert!(!game.fast_forwarding(), "player turn: no x2");
     }
 }

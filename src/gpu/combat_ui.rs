@@ -146,6 +146,7 @@ impl Renderer {
             let aspect = self.images.get(&u.portrait).map_or(1.0, |texture| texture.aspect);
             let body = if u.side == Side::Enemy {
                 super::board::enemy_portrait_scale()
+                    * super::board::unit_tier_scale(&u.template_id, u.side)
             } else {
                 1.0
             };
@@ -220,24 +221,28 @@ impl Renderer {
             );
         }
         let sel = game.ui.selected_skill.as_deref();
+        // Same predicate as input: turn buttons dim while yoma beats / windups play.
+        let live = game.combat_input_open();
         // Larger ash glyphs on the bar only — inactive WAIT/RAISE were weak tan-on-tan.
-        self.kenney_btn_ex(&mut rc, "kenney/ui/button-grey.png", bar.wait, "WAIT", false, 0.026);
-        self.kenney_btn_ex(&mut rc, "kenney/ui/button.png", bar.raise, "RAISE", false, 0.026);
-        self.kenney_btn_ex(
+        self.kenney_btn_state(&mut rc, "kenney/ui/button-grey.png", bar.wait, "WAIT", false, 0.026, live);
+        self.kenney_btn_state(&mut rc, "kenney/ui/button.png", bar.raise, "RAISE", false, 0.026, live);
+        self.kenney_btn_state(
             &mut rc,
             "kenney/ui/button-brown.png",
             bar.guard,
             "GUARD",
             sel == Some("guard"),
             0.026,
+            live,
         );
-        self.kenney_btn_ex(
+        self.kenney_btn_state(
             &mut rc,
             "kenney/ui/button.png",
             bar.cut,
             "CUT",
             sel == Some("cut"),
             0.026,
+            live,
         );
         let slot_id = current_unit(combat)
             .and_then(|u| u.skills.get(4))
@@ -262,14 +267,17 @@ impl Renderer {
         } else {
             "kenney/ui/button-grey.png"
         };
-        self.kenney_btn_ex(
+        self.kenney_btn_state(
             &mut rc,
             slot_tex,
             bar.slot,
             &slot_label,
             slot_hot,
             0.026,
+            live,
         );
+        // FALL stays lit: forfeit is a retreat, not a turn action, and it is
+        // accepted during enemy beats (like Esc-Esc flee).
         self.kenney_btn_ex(
             &mut rc,
             "kenney/ui/button-red.png",
@@ -291,10 +299,16 @@ impl Renderer {
             );
         }
         let prompt_y = bar.wait.y - 0.028;
-        self.prompt(&mut rc, "kenney/prompt/space.png", bar.wait.x + 0.03, prompt_y, 0.028);
-        self.prompt(&mut rc, "kenney/prompt/1.png", bar.cut.x + 0.035, prompt_y, 0.024);
-        self.prompt(&mut rc, "kenney/prompt/2.png", bar.guard.x + 0.04, prompt_y, 0.024);
-        self.prompt(&mut rc, "kenney/prompt/3.png", bar.slot.x + 0.045, prompt_y, 0.024);
+        self.prompt_state(&mut rc, "kenney/prompt/space.png", bar.wait.x + 0.03, prompt_y, 0.028, live);
+        self.prompt_state(&mut rc, "kenney/prompt/1.png", bar.cut.x + 0.035, prompt_y, 0.024, live);
+        self.prompt_state(&mut rc, "kenney/prompt/2.png", bar.guard.x + 0.04, prompt_y, 0.024, live);
+        self.prompt_state(&mut rc, "kenney/prompt/3.png", bar.slot.x + 0.045, prompt_y, 0.024, live);
+        if !live && combat.over.is_none() {
+            // Enemy phase caption over the dimmed row, plus the fast-forward hint.
+            let ff = game.fast_forwarding();
+            let (text, tint) = enemy_phase_caption(ff);
+            self.text_tint(&mut rc, text, bar.wait.x + 0.005, trans_meter_label_y(bar.wait.y), 0.011, tint);
+        }
         if let Some(line) = combat.log.last() {
             self.text(&mut rc, &line.text, 0.58, bar.wait.y - 0.018, 0.011);
         }
@@ -302,6 +316,10 @@ impl Renderer {
         self.text(&mut rc, "Q / E  ROTATE", 0.72, 0.02, 0.011);
         self.prompt(&mut rc, "kenney/prompt/esc.png", 0.92, 0.02, 0.04);
         self.draw_turn_queue(&mut rc, combat);
+        if game.fast_forwarding() {
+            // Small "x2" indicator under the rotate hint while beats are sped up.
+            self.text_tint(&mut rc, "X2  FAST", 0.72, 0.05, 0.016, [0.95, 0.82, 0.45, 1.0]);
+        }
         if game.esc_arm > 0.0 {
             self.text_tint(
                 &mut rc,
@@ -407,6 +425,22 @@ impl Renderer {
 }
 
 /// Current-chip ring: gold for the party, blood for an enemy beat.
+/// Ink veil laid over a disabled combat button plate (darkens + desaturates).
+pub(crate) const DISABLED_VEIL: [f32; 4] = [0.03, 0.026, 0.022, 0.72];
+/// Dim ash for a disabled button label.
+pub(crate) const DISABLED_TYPE: [f32; 4] = [0.40, 0.38, 0.36, 0.62];
+/// Dim key-hint chip tint while turn input is blocked.
+pub(crate) const DISABLED_PROMPT: [f32; 4] = [0.40, 0.38, 0.34, 0.28];
+
+/// Caption over the dimmed bar during the enemy phase.
+pub(crate) fn enemy_phase_caption(fast: bool) -> (&'static str, [f32; 4]) {
+    if fast {
+        ("YOMA ACT  X2", [0.95, 0.82, 0.45, 1.0])
+    } else {
+        ("YOMA ACT  HOLD SHIFT X2", [0.72, 0.64, 0.52, 0.9])
+    }
+}
+
 pub(crate) fn queue_ring_tint(side: Side) -> [f32; 4] {
     match side {
         Side::Player => [0.95, 0.82, 0.35, 0.55],

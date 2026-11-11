@@ -113,7 +113,7 @@ impl Renderer {
                 let face = face + std::f32::consts::PI;
                 // Vika is a slim humanoid (XZ ~0.72); scale up so body reads at hex size.
                 // Valefor (yoma) was 0.9 and read tiny at default zoom.
-                let scale = unit_size * archive_scale_mul(kind);
+                let scale = unit_size * archive_scale_mul(kind) * unit_tier_scale(&u.template_id, u.side);
                 // Sit on hex top so the mesh is not buried in the prism.
                 let ground = combat
                     .terrain
@@ -204,8 +204,9 @@ impl Renderer {
 
 /// Archive mesh scale per hex. Vika is slim; valefor is wide.
 pub(super) const VIKA_SCALE: f32 = 1.35;
-/// Yoma body scale (was 0.9: read tiny at default zoom).
-pub(super) const VALEFOR_SCALE: f32 = 1.2;
+/// Yoma body scale (0.9, then 1.2, both read tiny at default zoom). A
+/// common yoma now stands a little taller than Clare; tiers stack on top.
+pub(super) const VALEFOR_SCALE: f32 = 1.5;
 const VALEFOR_SCALE_BASE: f32 = 0.9;
 
 pub(super) fn archive_scale_mul(kind: ArchiveKind) -> f32 {
@@ -214,6 +215,27 @@ pub(super) fn archive_scale_mul(kind: ArchiveKind) -> f32 {
         ArchiveKind::Valefor => VALEFOR_SCALE,
     }
 }
+
+/// Claymore reads as a lone slim warrior against looming yoma: enemy bodies
+/// scale by tier on top of the common-yoma mesh scale. Players stay 1.0.
+pub(crate) fn unit_tier_scale(template_id: &str, side: Side) -> f32 {
+    if side != Side::Enemy {
+        return 1.0;
+    }
+    match template_id {
+        "yoma" => YOMA_TIER,
+        "yoma_stretch" => LONG_YOMA_TIER,
+        "ophelia" | "worm" => AWAKENED_TIER,
+        _ => YOMA_TIER,
+    }
+}
+
+/// Common yoma: one hex, already bumped via `VALEFOR_SCALE`.
+pub(super) const YOMA_TIER: f32 = 1.0;
+/// Long Yoma (stretch) towers over the pack.
+pub(super) const LONG_YOMA_TIER: f32 = 1.3;
+/// Awakened Beings occupy several cells; the body follows.
+pub(super) const AWAKENED_TIER: f32 = 1.6;
 
 /// Fallback (no-mesh) enemy portraits grow with the yoma body bump.
 pub(crate) fn enemy_portrait_scale() -> f32 {
@@ -268,17 +290,39 @@ mod archive_scale_tests {
     use super::{archive_scale_mul, enemy_portrait_scale, ArchiveKind};
 
     #[test]
-    fn vika_scaled_larger_than_valefor() {
-        assert!(archive_scale_mul(ArchiveKind::Vika) > archive_scale_mul(ArchiveKind::Valefor));
+    fn vika_reads_at_hex_size() {
+        // Vika is slim, so it still needs a lift; yoma now loom over it
+        // (see `tier_scale_tests`).
         assert!(archive_scale_mul(ArchiveKind::Vika) >= 1.2);
     }
 
     #[test]
     fn yoma_reads_bigger_and_fallback_portraits_follow() {
         let v = archive_scale_mul(ArchiveKind::Valefor);
-        assert!(v > 0.9 && v <= 1.3, "yoma body {v}");
+        assert!(v > 0.9 && v <= 1.6, "yoma body {v}");
         // Fallback portrait grows by the same ratio as the mesh.
         assert!((enemy_portrait_scale() - v / 0.9).abs() < 1e-6);
+    }
+}
+
+#[cfg(test)]
+mod tier_scale_tests {
+    use super::*;
+
+    #[test]
+    fn yoma_tiers_grow_and_players_stay_put() {
+        let y = unit_tier_scale("yoma", Side::Enemy);
+        let long = unit_tier_scale("yoma_stretch", Side::Enemy);
+        let awake = unit_tier_scale("ophelia", Side::Enemy);
+        assert!((y - 1.0).abs() < 1e-6);
+        assert!(long > y && awake > long);
+        assert_eq!(unit_tier_scale("worm", Side::Enemy), awake);
+        assert_eq!(unit_tier_scale("clare", Side::Player), 1.0);
+        assert_eq!(unit_tier_scale("yoma", Side::Player), 1.0);
+        // A Long Yoma may loom but should stay around two tiles tall.
+        assert!(VALEFOR_SCALE * long <= 2.0, "long yoma {}", VALEFOR_SCALE * long);
+        // Common yoma now stand at least as tall as the slim Claymore mesh.
+        assert!(VALEFOR_SCALE * y >= VIKA_SCALE);
     }
 }
 
