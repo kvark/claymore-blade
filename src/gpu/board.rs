@@ -34,28 +34,29 @@ impl Renderer {
             },
         );
         rc.bind_vertex(0, self.prism.into());
-        // Dark ground plate under the prism grid so gaps / lavapipe void do not read as pure black.
-        // Center and radius come from the board's hex extents so every tile stays covered at all yaws.
-        let (gx, gz) = board_ground_center(combat.cols, combat.rows, size, yaw);
-        let ground_r = board_ground_radius(combat.cols, combat.rows, size);
-        rc.bind(
-            1,
-            &HuntDraw {
-                locals: HuntLocal {
-                    world: [gx, -size * 0.12, gz, ground_r],
-                    color: [0.07, 0.06, 0.05, (size * 0.05).max(0.04)],
-                    pose: [1.0, 0.0, 0.0, 0.04],
-                    joints: identity_palette(),
+        // Dark ground under the prism grid so gaps / lavapipe void do not read as pure black.
+        // One plinth per terrain cell, placed exactly like the tiles, so the ground
+        // follows the board's footprint at every yaw instead of a separately sized plate.
+        let [px, py, pz] = BOARD_PRISM_POSE;
+        for (hex, _) in &combat.terrain {
+            rc.bind(
+                1,
+                &HuntDraw {
+                    locals: HuntLocal {
+                        world: board_ground_world(*hex, size, yaw),
+                        color: [0.07, 0.06, 0.05, board_ground_height(size)],
+                        pose: [px, py, pz, 0.04],
+                        joints: identity_palette(),
+                    },
                 },
-            },
-        );
-        rc.draw(0, self.prism_count, 0, 1);
+            );
+            rc.draw(0, self.prism_count, 0, 1);
+        }
         let preview = game.preview_zone();
         let threat = game.threat_zone();
         let skill_on = game.ui.selected_skill.is_some();
         for (hex, terrain) in &combat.terrain {
             let height = terrain_height(*terrain, size);
-            let (x, z) = axial_to_world_yaw(*hex, size, yaw);
             let mut color = terrain_tint(*terrain);
             if preview.iter().any(|h| h.q == hex.q && h.r == hex.r) {
                 color = if skill_on {
@@ -75,10 +76,10 @@ impl Renderer {
                 1,
                 &HuntDraw {
                     locals: HuntLocal {
-                        world: [x, 0.0, z, size * 0.92],
+                        world: board_tile_world(*hex, size, yaw),
                         color: [color[0], color[1], color[2], height.max(0.04)],
                         // Unlit albedo lift so terrain hue survives Lavapipe + actor lamps.
-                        pose: [1.0, 0.0, 0.0, 0.14],
+                        pose: [px, py, pz, 0.14],
                         joints: identity_palette(),
                     },
                 },

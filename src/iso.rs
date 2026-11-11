@@ -133,35 +133,45 @@ pub fn board_ground_center(cols: i32, rows: i32, size: f32, yaw: u8) -> (f32, f3
     rotate_yaw(x, z, yaw)
 }
 
-/// Circumradius of the smallest pointy-top hex at the origin that contains (x, z).
-fn hex_norm(x: f32, z: f32) -> f32 {
-    let q = (3f32.sqrt() / 3.0) * x - (1.0 / 3.0) * z;
-    let r = (2.0 / 3.0) * z;
-    let s = -q - r;
-    (q.abs() + r.abs() + s.abs()) * 0.5
+/// Terrain prism radius relative to the hex size (leaves a thin seam).
+pub const TILE_SCALE: f32 = 0.92;
+/// Ground plinth radius relative to the hex size. Prisms are drawn with an
+/// identity pose at every yaw, so after a 90° camera turn the lattice runs
+/// corner-to-corner; 2/sqrt(3) ≈ 1.155 is the minimum that still closes the
+/// gaps, and the rest is a visible rim around the outermost tiles.
+pub const GROUND_SCALE: f32 = 1.2;
+
+/// `HuntLocal::pose.xyz` (cos, sin, shear) for terrain prisms and ground plinths.
+pub const BOARD_PRISM_POSE: [f32; 3] = [1.0, 0.0, 0.0];
+
+/// `HuntLocal::world` for the terrain prism of `hex` (xyz offset, xz scale).
+pub fn board_tile_world(hex: Axial, size: f32, yaw: u8) -> [f32; 4] {
+    let (x, z) = axial_to_world_yaw(hex, size, yaw);
+    [x, 0.0, z, size * TILE_SCALE]
 }
 
-/// Circumradius of the ground plate, large enough that every tile (including
-/// unrotated hex corners) stays on the plate at all four camera yaws.
-pub fn board_ground_radius(cols: i32, rows: i32, size: f32) -> f32 {
-    let mut need = 0.0_f32;
-    for yaw in 0..4 {
-        let (cx, cz) = board_ground_center(cols, rows, size, yaw);
-        for q in 0..cols {
-            for r in 0..rows {
-                let (hx, hz) = axial_to_world_yaw(Axial::new(q, r), size, yaw);
-                // Terrain prisms keep identity pose, so corners are not yawed.
-                for i in 0..6 {
-                    let angle = ((60.0 * i as f32) - 30.0).to_radians();
-                    let vx = hx + size * angle.cos();
-                    let vz = hz + size * angle.sin();
-                    need = need.max(hex_norm(vx - cx, vz - cz));
-                }
-            }
-        }
-    }
-    // Small frame so the plate visibly wraps the board, as at the default yaw.
-    need * 1.12
+/// `HuntLocal::world` for the dark ground plinth under `hex`. The ground is the
+/// union of one plinth per terrain cell, placed by the same hex→world→yaw map as
+/// the tiles, so it follows the board's real footprint at every camera angle.
+pub fn board_ground_world(hex: Axial, size: f32, yaw: u8) -> [f32; 4] {
+    let (x, z) = axial_to_world_yaw(hex, size, yaw);
+    [x, -size * 0.12, z, size * GROUND_SCALE]
+}
+
+/// `HuntLocal::color.w` (prism height) for the ground plinths.
+pub fn board_ground_height(size: f32) -> f32 {
+    (size * 0.05).max(0.04)
+}
+
+/// CPU mirror of `hunt.wgsl` `vs_main` world placement for an identity skin:
+/// yaw the mesh by `pose` (cos, sin, shear), scale XZ by `world.w` and Y by
+/// `height`, then offset by `world.xyz`.
+pub fn hunt_vertex_world(world: [f32; 4], height: f32, pose: [f32; 3], pos: [f32; 3]) -> [f32; 3] {
+    let [c, s, shear] = pose;
+    let rx = pos[0] * c - pos[2] * s;
+    let rz = pos[0] * s + pos[2] * c;
+    let ly = pos[1] + shear * rx;
+    [rx * world[3] + world[0], ly * height + world[1], rz * world[3] + world[2]]
 }
 
 /// Largest zoom at which the framed board still fits between the initiative
@@ -199,16 +209,16 @@ pub fn board_zoom_max(cols: i32, rows: i32, w: f32, h: f32, yaw: u8) -> f32 {
 /// Independent of pan/zoom: reframing the board must not change occlusion.
 pub fn board_depth_origin_scale(cols: i32, rows: i32, size: f32, yaw: u8) -> [f32; 4] {
     let (cx, cz) = board_ground_center(cols, rows, size, yaw);
-    let mut extent = board_ground_radius(cols, rows, size) * std::f32::consts::SQRT_2;
+    let mut extent = 0.0_f32;
     for q in [0, cols - 1] {
         for r in [0, rows - 1] {
             let (x, z) = axial_to_world_yaw(Axial::new(q, r), size, yaw);
             extent = extent.max(((x - cx) + (z - cz)).abs());
         }
     }
-    // Covers prism radii, raised terrain, and animated fighters extending
-    // two tiles horizontally and four tiles above any cell center.
-    depth_origin_scale([cx, 0.0, cz], extent + size * 8.0)
+    // Covers ground plinths and prism radii, raised terrain, and animated
+    // fighters extending two tiles horizontally and four tiles above any cell.
+    depth_origin_scale([cx, 0.0, cz], extent + size * (8.0 + 2.0 * GROUND_SCALE))
 }
 
 pub fn camera_origin(
@@ -325,18 +335,17 @@ mod tests {
             for size in [1.0, 12.0, 24.0, 43.0, 62.0] {
                 for yaw in 0..4 {
                     let params = board_depth_origin_scale(encounter.cols, encounter.rows, size, yaw);
-                    let radius = board_ground_radius(encounter.cols, encounter.rows, size);
-                    let ground_top = -size * 0.12 + (size * 0.05).max(0.04);
-                    for vertex in &prism.vertices {
-                        let [x, y, z] = vertex.position;
-                        assert_inside_depth_range(
-                            [
-                                params[0] + x * radius,
-                                -size * 0.12 + y * (size * 0.05).max(0.04),
-                                params[2] + z * radius,
-                            ],
-                            params,
-                        );
+                    let ground_top = -size * 0.12 + board_ground_height(size);
+                    for q in 0..encounter.cols {
+                        for r in 0..encounter.rows {
+                            let plinth = board_ground_world(Axial::new(q, r), size, yaw);
+                            for vertex in &prism.vertices {
+                                let p = hunt_vertex_world(
+                                    plinth, board_ground_height(size), BOARD_PRISM_POSE, vertex.position,
+                                );
+                                assert_inside_depth_range(p, params);
+                            }
+                        }
                     }
                     for q in 0..encounter.cols {
                         for r in 0..encounter.rows {
@@ -511,41 +520,96 @@ mod tests {
         }
     }
 
-    fn tile_corners(hx: f32, hz: f32, size: f32) -> [(f32, f32); 6] {
-        let mut out = [(0.0, 0.0); 6];
-        for i in 0..6 {
-            let angle = ((60.0 * i as f32) - 30.0).to_radians();
-            out[i] = (hx + size * angle.cos(), hz + size * angle.sin());
+    /// Top-face outline in world XZ of one prism instance, exactly as hunt.wgsl places it.
+    fn top_outline(prism: &crate::prism::Mesh, world: [f32; 4], height: f32) -> Vec<(f32, f32)> {
+        let mut ring: Vec<(f32, f32)> = Vec::new();
+        for v in &prism.vertices {
+            let [x, y, z] = v.position;
+            if (y - 1.0).abs() > 1e-6 || (x * x + z * z) < 1e-6 {
+                continue;
+            }
+            let p = hunt_vertex_world(world, height, BOARD_PRISM_POSE, v.position);
+            if !ring.iter().any(|q| (q.0 - p[0]).abs() < 1e-4 && (q.1 - p[2]).abs() < 1e-4) {
+                ring.push((p[0], p[2]));
+            }
         }
-        out
+        let (cx, cz) = (world[0], world[2]);
+        ring.sort_by(|a, b| {
+            let ta = (a.1 - cz).atan2(a.0 - cx);
+            let tb = (b.1 - cz).atan2(b.0 - cx);
+            ta.partial_cmp(&tb).unwrap()
+        });
+        assert_eq!(ring.len(), 6, "prism top must be a hexagon");
+        ring
     }
 
+    fn inside_convex(poly: &[(f32, f32)], p: (f32, f32), eps: f32) -> bool {
+        (0..poly.len()).all(|i| {
+            let a = poly[i];
+            let b = poly[(i + 1) % poly.len()];
+            let cross = (b.0 - a.0) * (p.1 - a.1) - (b.1 - a.1) * (p.0 - a.0);
+            cross >= -eps
+        })
+    }
+
+    /// The ground must sit under every tile and close every seam between tiles,
+    /// using the same instance transforms the renderer binds (board.rs).
     #[test]
     fn ground_plate_covers_every_tile_at_every_yaw() {
+        use crate::hex::HEX_DIRS;
+        let prism = crate::prism::unit_hex_prism([1.0; 4]);
         for encounter in crate::catalog::ENCOUNTERS {
+            let (cols, rows) = (encounter.cols, encounter.rows);
+            let cells: Vec<Axial> = (0..rows)
+                .flat_map(|r| (0..cols).map(move |q| Axial::new(q, r)))
+                .collect();
+            let on_board = |h: Axial| h.q >= 0 && h.q < cols && h.r >= 0 && h.r < rows;
             for size in [1.0, 12.0, 24.0, 43.0, 62.0] {
-                let radius = board_ground_radius(encounter.cols, encounter.rows, size);
+                let eps = size * 1e-4;
                 for yaw in 0..4 {
-                    let (cx, cz) = board_ground_center(encounter.cols, encounter.rows, size, yaw);
-                    for q in 0..encounter.cols {
-                        for r in 0..encounter.rows {
-                            let (hx, hz) = axial_to_world_yaw(Axial::new(q, r), size, yaw);
-                            // Cell center and the unrotated prism corners must sit on the plate.
-                            assert!(
-                                hex_norm(hx - cx, hz - cz) <= radius + 1e-4,
-                                "cell center ({q},{r}) yaw {yaw} misses the plate"
-                            );
-                            for (vx, vz) in tile_corners(hx, hz, size) {
-                                let reach = hex_norm(vx - cx, vz - cz);
-                                assert!(
-                                    reach <= radius + 1e-4,
-                                    "tile corner at ({q},{r}) yaw {yaw} reach {reach} > radius {radius}"
-                                );
+                    let ground: Vec<Vec<(f32, f32)>> = cells
+                        .iter()
+                        .map(|h| top_outline(&prism, board_ground_world(*h, size, yaw), board_ground_height(size)))
+                        .collect();
+                    let covered = |p: (f32, f32)| ground.iter().any(|g| inside_convex(g, p, eps));
+                    for &h in &cells {
+                        // Every tile top corner, at the tile's own instance transform.
+                        for (x, z) in top_outline(&prism, board_tile_world(h, size, yaw), size * 0.12) {
+                            assert!(covered((x, z)), "tile ({},{}) corner off the ground at yaw {yaw}", h.q, h.r);
+                        }
+                        // Seams: midpoints to each neighbor and the three-cell junctions.
+                        let c = board_tile_world(h, size, yaw);
+                        for i in 0..6 {
+                            let n = h.add(HEX_DIRS[i]);
+                            let m = h.add(HEX_DIRS[(i + 1) % 6]);
+                            if !on_board(n) {
+                                continue;
+                            }
+                            let cn = board_tile_world(n, size, yaw);
+                            let mid = ((c[0] + cn[0]) * 0.5, (c[2] + cn[2]) * 0.5);
+                            assert!(covered(mid), "seam ({},{})-({},{}) open at yaw {yaw}", h.q, h.r, n.q, n.r);
+                            if on_board(m) {
+                                let cm = board_tile_world(m, size, yaw);
+                                let tri = ((c[0] + cn[0] + cm[0]) / 3.0, (c[2] + cn[2] + cm[2]) / 3.0);
+                                assert!(covered(tri), "junction at ({},{}) open at yaw {yaw}", h.q, h.r);
                             }
                         }
                     }
                 }
             }
+        }
+    }
+
+    /// The shader mirror must agree with axial placement and the prism mesh.
+    #[test]
+    fn hunt_vertex_world_matches_tile_placement() {
+        for yaw in 0..4 {
+            let h = Axial::new(3, 2);
+            let w = board_tile_world(h, 10.0, yaw);
+            let (x, z) = axial_to_world_yaw(h, 10.0, yaw);
+            let p = hunt_vertex_world(w, 2.0, BOARD_PRISM_POSE, [0.0, 1.0, 1.0]);
+            assert!((p[0] - x).abs() < 1e-4 && (p[1] - 2.0).abs() < 1e-4);
+            assert!((p[2] - (z + 10.0 * TILE_SCALE)).abs() < 1e-4);
         }
     }
 
