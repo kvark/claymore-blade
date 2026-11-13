@@ -1105,6 +1105,37 @@ mod tests {
     }
 
     #[test]
+    fn claw_over_a_fading_flash_blends_instead_of_snapping() {
+        let (mut game, prey) = clare_ready_to_flash(50);
+        game.combat.as_mut().unwrap().units.iter_mut().find(|u| u.id == "clare").unwrap().ap = 1;
+        game.ui.zoom = 0.9; // room under the HUD fit cap for both pushes
+        game.combat_act(flash_at(prey));
+        let flash = game.cutin.clone().unwrap();
+        // The yoma's beat lands while the FLASH is easing out.
+        let beat = game.enemy_beat_at.expect("FLASH ended Clare's turn");
+        assert!(beat > flash.strike_at && beat < flash.end(), "beat inside the FLASH fade");
+        game.fx.time = beat - 1e-3;
+        let before = game.view_camera();
+        fire_beat(&mut game);
+        let claw = game.cutin.clone().expect("claw cut-in armed");
+        assert_eq!((claw.kind, claw.unit_id.as_str()), (beats::CutInKind::Claw, "yoma-0"));
+        let after = game.view_camera();
+        let d = ((after.0[0] - before.0[0]).powi(2) + (after.0[1] - before.0[1]).powi(2)).sqrt();
+        assert!(d < 2.0, "pan snapped by {d}px: {before:?} -> {after:?}");
+        assert!((after.1 - before.1).abs() < 0.01, "zoom snapped {} -> {}", before.1, after.1);
+        // Then it glides to the yoma without frame-to-frame jumps.
+        let mut prev = after;
+        for i in 1..=20 {
+            game.fx.time = beat + beats::HANDOFF_BLEND * i as f32 / 20.0;
+            let cam = game.view_camera();
+            let step = ((cam.0[0] - prev.0[0]).powi(2) + (cam.0[1] - prev.0[1]).powi(2)).sqrt();
+            assert!(step < 40.0, "jump {step}px at step {i}");
+            prev = cam;
+        }
+        assert_eq!(claw.takeover(game.fx.time), 1.0);
+    }
+
+    #[test]
     fn flash_streaks_stay_off_the_board_units_and_caption() {
         for (yaw, max_zoom) in [(0u8, false), (1, false), (2, true), (3, true)] {
             let (mut game, prey) = clare_ready_to_flash(50);

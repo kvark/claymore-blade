@@ -290,14 +290,28 @@ impl Renderer {
         let Some(u) = combat.units.iter().find(|u| u.id == cut.unit_id) else {
             return;
         };
-        let focus = game.hex_screen(core_hex(u));
+        let mut focus = game.hex_screen(core_hex(u));
         let panel_top = hud::combat_bar().wait.y - 0.03;
         use crate::game::beats::{self, CutInKind};
-        let (wash, ink) = match cut.kind {
+        let look = |kind: CutInKind, k: f32| match kind {
             CutInKind::Claw => (beats::cutin_wash(k, panel_top), [0.96, 0.93, 0.86]),
             CutInKind::Flash => (beats::flash_wash(k, panel_top), beats::FLASH_STREAK),
         };
-        for (r, c) in wash {
+        // During a handoff the old cut-in's wash fades out as the new one fades in.
+        let t = cut.takeover(game.fx.time);
+        let mut ink = look(cut.kind, k).1;
+        if let Some(hand) = cut.handoff.as_ref().filter(|_| t < 1.0) {
+            let (wash, old) = look(hand.kind, k * (1.0 - t));
+            for (r, c) in wash {
+                self.rect(rc, r, c);
+            }
+            ink = std::array::from_fn(|i| old[i] + (ink[i] - old[i]) * t);
+            if let Some(prev) = combat.units.iter().find(|u| u.id == hand.unit_id) {
+                let a = game.hex_screen(core_hex(prev));
+                focus = [a[0] + (focus[0] - a[0]) * t, a[1] + (focus[1] - a[1]) * t];
+            }
+        }
+        for (r, c) in look(cut.kind, k * t).0 {
             self.rect(rc, r, c);
         }
         let keep_out = game.cutin_keep_out();

@@ -80,7 +80,22 @@ pub struct CutIn {
     /// over the kind's ease-out after this.
     pub strike_at: f32,
     pub kind: CutInKind,
+    /// Cut-in this one took over mid-fade (e.g. a claw arming while the
+    /// FLASH eases out): focus, wash and streaks blend from it.
+    pub handoff: Option<Handoff>,
 }
+
+/// What a cut-in blends from over `HANDOFF_BLEND` after it arms.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Handoff {
+    pub unit_id: String,
+    pub kind: CutInKind,
+    /// When the new cut-in armed.
+    pub at: f32,
+}
+
+/// Seconds a claw takes over the previous cut-in's focus and colour.
+pub const HANDOFF_BLEND: f32 = CUTIN_IN;
 
 impl CutIn {
     pub fn end(&self) -> f32 {
@@ -91,12 +106,17 @@ impl CutIn {
         let (rin, rout) = self.kind.ramps();
         envelope(now, self.start, self.strike_at, rin, rout)
     }
+
+    /// 0 → 1 weight of this cut-in's own focus/colour over its handoff.
+    pub fn takeover(&self, now: f32) -> f32 {
+        self.handoff.as_ref().map_or(1.0, |h| smoothstep((now - h.at) / HANDOFF_BLEND))
+    }
 }
 
 /// Presentational FLASH cut-in on the striker: the Quicksword already landed
 /// (instant resolve), so the push only frames it and then eases back.
 pub fn flash_cutin(unit_id: &str, now: f32) -> CutIn {
-    CutIn { unit_id: unit_id.into(), start: now, strike_at: now + FLASH_HOLD, kind: CutInKind::Flash }
+    CutIn { unit_id: unit_id.into(), start: now, strike_at: now + FLASH_HOLD, kind: CutInKind::Flash, handoff: None }
 }
 
 fn smoothstep(x: f32) -> f32 {
@@ -104,13 +124,20 @@ fn smoothstep(x: f32) -> f32 {
     x * x * (3.0 - 2.0 * x)
 }
 
-/// Arm a cut-in for a new windup. A back-to-back claw by the same yoma picks
-/// up from the current strength instead of snapping the camera back out.
+/// Arm a cut-in for a new windup. A back-to-back claw by the same yoma, or a
+/// claw arming while a FLASH still eases out, picks up from the current
+/// strength instead of snapping the camera back out; the FLASH hands its
+/// focus and colour over smoothly (`Handoff`).
 pub fn rearm_cutin(prev: Option<&CutIn>, unit_id: &str, now: f32, windup: f32) -> CutIn {
-    let k = prev
-        .filter(|c| c.unit_id == unit_id && c.kind == CutInKind::Claw)
-        .map(|c| c.strength(now))
-        .unwrap_or(0.0);
+    let same = |c: &&CutIn| c.unit_id == unit_id && c.kind == CutInKind::Claw;
+    let live = |c: &&CutIn| c.kind == CutInKind::Flash && c.strength(now) > 0.0;
+    let carry = prev.filter(|c| same(c) || live(c));
+    let k = carry.map(|c| c.strength(now)).unwrap_or(0.0);
+    let handoff = carry.filter(|c| !same(c)).map(|c| Handoff {
+        unit_id: c.unit_id.clone(),
+        kind: c.kind,
+        at: now,
+    });
     // Invert the smoothstep rise closely enough: start earlier by k of the ramp.
     let start = now - CUTIN_IN * inv_smoothstep(k);
     CutIn {
@@ -118,6 +145,7 @@ pub fn rearm_cutin(prev: Option<&CutIn>, unit_id: &str, now: f32, windup: f32) -
         start,
         strike_at: now + windup,
         kind: CutInKind::Claw,
+        handoff,
     }
 }
 
@@ -254,9 +282,13 @@ pub fn caption_keep_out(plate: Rect) -> Rect {
 }
 
 /// Number of stacked edge bands in the cut-in vignette.
-pub const WASH_RINGS: usize = 7;
-/// Alpha of one vignette band at full strength (bands stack at the rim).
-pub const WASH_BAND_ALPHA: f32 = 0.16;
+/// Fine steps (was 7 at 0.16) so the stack reads as a gradient, not stripes.
+pub const WASH_RINGS: usize = 14;
+/// Width added by each vignette band.
+pub const WASH_STEP: f32 = 0.245 / WASH_RINGS as f32;
+/// Alpha of one vignette band at full strength (bands stack at the rim);
+/// 14 bands at this alpha stack to the old 7 x 0.16 edge.
+pub const WASH_BAND_ALPHA: f32 = 0.0835;
 /// Letterbox bar height at full strength (normalized screen height).
 pub const LETTERBOX_H: f32 = 0.05;
 
@@ -274,7 +306,7 @@ pub fn cutin_wash(strength: f32, panel_top: f32) -> Vec<(Rect, [f32; 4])> {
     let ink = [0.008, 0.0, 0.001];
     for i in 0..WASH_RINGS {
         // Bands grow inward; their overlap stacks into a soft gradient.
-        let d = 0.035 * (i + 1) as f32;
+        let d = WASH_STEP * (i + 1) as f32;
         let a = WASH_BAND_ALPHA * k;
         let c = [ink[0], ink[1], ink[2], a];
         out.push(([0.0, 0.0, 1.0, d * 0.8], c)); // top
@@ -306,7 +338,7 @@ pub fn flash_wash(strength: f32, panel_top: f32) -> Vec<(Rect, [f32; 4])> {
     }
     out.push(([0.0, 0.0, 1.0, 1.0], [0.86, 0.88, 0.92, 0.015 * k]));
     for i in 0..WASH_RINGS {
-        let d = 0.035 * (i + 1) as f32;
+        let d = WASH_STEP * (i + 1) as f32;
         let c = [0.98, 0.93, 0.76, FLASH_BAND_ALPHA * k];
         out.push(([0.0, 0.0, 1.0, d * 0.8], c));
         out.push(([0.0, panel_top - d * 0.35, 1.0, d * 0.35], c));
@@ -320,7 +352,7 @@ pub fn flash_wash(strength: f32, panel_top: f32) -> Vec<(Rect, [f32; 4])> {
 /// Alpha of one FLASH glare band at full strength. Blending runs in linear
 /// space on an sRGB target, so pale-on-dark needs far less alpha than the
 /// claw's ink to read as the same weight.
-pub const FLASH_BAND_ALPHA: f32 = 0.02;
+pub const FLASH_BAND_ALPHA: f32 = 0.01;
 /// Gold-white FLASH speed streaks (claw streaks are bone-white ink).
 pub const FLASH_STREAK: [f32; 3] = [1.0, 0.95, 0.74];
 /// FLASH cut-in caption.
@@ -380,7 +412,7 @@ mod tests {
             assert!(v <= prev + 1e-6);
             prev = v;
         }
-        let c = CutIn { unit_id: "y".into(), start: s, strike_at: k, kind: CutInKind::Claw };
+        let c = CutIn { unit_id: "y".into(), start: s, strike_at: k, kind: CutInKind::Claw, handoff: None };
         assert!((c.end() - (k + CUTIN_OUT)).abs() < 1e-6);
         // Whole cut-in is short: windup + ease-out.
         assert!(c.end() - c.start <= 1.0);
@@ -521,10 +553,19 @@ mod tests {
         // Shorter than the claw's whole cut-in (windup + ease-out).
         assert!(c.end() - c.start <= 0.5);
         assert!(c.end() - c.start < ENEMY_WINDUP + CUTIN_OUT);
-        // A claw arming over a live FLASH (a different unit) starts its own.
-        let claw = rearm_cutin(Some(&c), "yoma-0", 3.2, ENEMY_WINDUP);
+        // A claw arming over a fading FLASH carries its strength and blends
+        // focus/colour over from Clare instead of snapping.
+        let now = c.strike_at + FLASH_OUT * 0.4;
+        let claw = rearm_cutin(Some(&c), "yoma-0", now, ENEMY_WINDUP);
         assert_eq!(claw.kind, CutInKind::Claw);
-        assert_eq!(claw.strength(3.2), 0.0);
+        assert!((claw.strength(now) - c.strength(now)).abs() < 1e-3);
+        let h = claw.handoff.as_ref().expect("handoff from the FLASH");
+        assert_eq!((h.unit_id.as_str(), h.kind), ("clare", CutInKind::Flash));
+        assert_eq!(claw.takeover(now), 0.0);
+        assert!((claw.takeover(now + HANDOFF_BLEND) - 1.0).abs() < 1e-6);
+        // A spent FLASH hands nothing over.
+        let late = rearm_cutin(Some(&c), "yoma-0", c.end() + 0.1, ENEMY_WINDUP);
+        assert!(late.handoff.is_none() && late.strength(c.end() + 0.1) == 0.0);
     }
 
     #[test]

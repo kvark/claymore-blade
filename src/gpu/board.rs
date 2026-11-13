@@ -220,10 +220,12 @@ impl Renderer {
 /// 0.72 was lost under the yoma at default zoom; still well under Clare
 /// (`CLARE_SIZE`).
 pub(super) const RAKI_SIZE: f32 = 0.95;
-/// Clare is the lead: a larger figure than other Claymores so she reads
-/// first at default zoom (yaw 1, zoom ~1.48), yet stays inside her hex and
-/// under the Long Yoma.
-pub(super) const CLARE_SIZE: f32 = 1.35;
+/// Clare is the lead: a tall Claymore at about common-yoma height on screen
+/// at default zoom (yaw 1, zoom ~1.48; the valefor mesh is natively taller
+/// than vika, so the scale numbers differ), still under the Long Yoma.
+pub(super) const CLARE_SIZE: f32 = 1.6;
+/// Clare stays slim as she grows: XZ relative to height.
+pub(super) const CLARE_WIDTH: f32 = 0.88;
 /// Pale silver cloak rim: Clare is the brightest silhouette on the board.
 pub(super) const CLARE_RIM: [f32; 4] = [0.85, 0.90, 1.0, 1.6];
 /// Unlit lift on Clare's albedo, same as other Claymores: the rim does the
@@ -240,10 +242,12 @@ pub(super) fn figure_size(template_id: &str) -> f32 {
         _ => 1.0,
     }
 }
-/// Raki's clothes: warm dark brown, nowhere near Claymore silver.
-pub(super) const RAKI_TINT: [f32; 3] = [0.38, 0.20, 0.08];
-/// Negative rim = ink outline on Raki's silhouette.
-pub(super) const KID_RIM: [f32; 4] = [1.0, 1.0, 1.0, -1.2];
+/// Raki's clothes: warm tan-brown travel cloak, lighter than the dark moss
+/// yet nowhere near Claymore silver.
+pub(super) const RAKI_TINT: [f32; 3] = [0.48, 0.29, 0.13];
+/// Subtle amber rim (the ink outline read as a dark smudge on moss); far
+/// weaker and warmer than Clare's silver.
+pub(super) const KID_RIM: [f32; 4] = [1.0, 0.62, 0.22, 0.55];
 
 /// Per-kind body shaping on top of the uniform archive scale.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -259,11 +263,11 @@ pub(super) struct ArchiveBody {
 pub(super) fn archive_body(kind: ArchiveKind) -> ArchiveBody {
     match kind {
         ArchiveKind::Vika => ArchiveBody { width: 1.0, glow: 0.12, rim: NO_RIM },
-        ArchiveKind::Clare => ArchiveBody { width: 1.0, glow: CLARE_GLOW, rim: CLARE_RIM },
+        ArchiveKind::Clare => ArchiveBody { width: CLARE_WIDTH, glow: CLARE_GLOW, rim: CLARE_RIM },
         // A kid's frame is stockier than an adult warrior's, and an ink outline
         // (negative rim) keeps the small dark figure from washing out under
         // the actor lamp next to Clare.
-        ArchiveKind::Kid => ArchiveBody { width: 1.3, glow: 0.10, rim: KID_RIM },
+        ArchiveKind::Kid => ArchiveBody { width: 1.3, glow: 0.12, rim: KID_RIM },
         ArchiveKind::Valefor => yoma_body(),
     }
 }
@@ -415,7 +419,7 @@ mod archive_look_tests {
     }
 
     #[test]
-    fn raki_is_a_small_warm_dark_figure_next_to_clare() {
+    fn raki_is_a_small_warm_figure_next_to_clare() {
         let clare = archive_tint(ArchiveKind::Vika, [0.78, 0.80, 0.83]);
         let raki = archive_tint(ArchiveKind::Kid, [0.62, 0.48, 0.36]);
         // Warm clothing (red > green > blue), far darker than Claymore silver.
@@ -427,7 +431,11 @@ mod archive_look_tests {
         assert!(RAKI_SIZE < CLARE_SIZE * 0.75, "Raki stays a boy next to Clare");
         let kid = archive_body(ArchiveKind::Kid);
         assert!(kid.width >= 1.0 && kid.width <= 1.4);
-        assert!(kid.rim[3] < 0.0, "ink outline");
+        // Subtle amber rim: warm (r > g > b), much weaker than Clare's silver.
+        assert!(kid.rim[3] > 0.0 && kid.rim[0] > kid.rim[1] && kid.rim[1] > kid.rim[2], "{:?}", kid.rim);
+        assert!(kid.rim[3] < CLARE_RIM[3] * 0.5);
+        // Lighter than the moss he stands on, so he is findable at a glance.
+        assert!(luma(raki) > luma(terrain_tint(crate::combat::Terrain::Grass)) * 2.5);
     }
 
     #[test]
@@ -485,8 +493,10 @@ mod clare_read_tests {
         assert!(clare_h > h("miria", ArchiveKind::Vika) * 1.15);
         assert!(clare_h > h("raki", ArchiveKind::Kid) * 1.3);
         // Vika's XZ extent is ~0.72 of a unit: half of it scaled stays inside the hex radius.
-        assert!(clare_h * 0.72 * 0.5 <= 0.75, "Clare's stance stays in her hex: {clare_h}");
-        assert!(clare_h < VALEFOR_SCALE * LONG_YOMA_TIER, "Long Yoma still looms");
+        assert!(clare_h * clare.width * 0.72 * 0.5 <= 0.75, "Clare's stance stays in her hex: {clare_h}");
+        // Tall but well inside the 3-tile fighter headroom the zoom cap reserves.
+        assert!(clare_h <= 2.2, "Clare {clare_h}");
+        assert!(clare.width < 1.0, "stays slim as she grows");
         assert_eq!(figure_size("yoma"), 1.0);
     }
 }
