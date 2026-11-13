@@ -359,6 +359,9 @@ impl Game {
         if let Some(cut) = self.cutin.as_mut() {
             cut.start -= skip;
             cut.strike_at -= skip;
+            if let Some(h) = cut.handoff.as_mut() {
+                h.at -= skip;
+            }
         }
     }
 
@@ -481,35 +484,37 @@ impl Game {
         if k <= 0.0 {
             return (pan, zoom);
         }
-        let Some(focus) = combat
-            .units
-            .iter()
-            .find(|u| u.id == cut.unit_id)
-            .map(core_hex)
-        else {
+        let hex_of = |id: &str| combat.units.iter().find(|u| u.id == id).map(core_hex);
+        let Some(focus) = hex_of(&cut.unit_id) else {
             return (pan, zoom);
         };
         let [w, h] = [self.ui.screen[0].max(1.0), self.ui.screen[1].max(1.0)];
         let cap = crate::iso::board_zoom_max(combat.cols, combat.rows, w, h, self.ui.yaw)
             .min(COMBAT_ZOOM_MAX);
         let z1 = beats::cutin_zoom(zoom, cap, k);
-        let at = |z: f32| {
-            let p = crate::iso::hex_to_screen(
-                focus, w, h, combat.cols, combat.rows, pan, z, 8.0, self.ui.yaw,
-            );
-            [p[0] * w, p[1] * h]
-        };
-        let (x0, x1) = (at(zoom), at(z1));
-        // Zoom about the yoma, then drift it a little toward the board center.
         let center = crate::iso::board_viewport_center(w, h);
         let drift = beats::CUTIN_DRIFT * k;
-        (
+        // Zoom about the focus, then drift it a little toward the board center.
+        let push = |focus: Axial| {
+            let at = |z: f32| {
+                let p = crate::iso::hex_to_screen(
+                    focus, w, h, combat.cols, combat.rows, pan, z, 8.0, self.ui.yaw,
+                );
+                [p[0] * w, p[1] * h]
+            };
+            let (x0, x1) = (at(zoom), at(z1));
             [
                 pan[0] + (x0[0] - x1[0]) + (center[0] - x0[0]) * drift,
                 pan[1] + (x0[1] - x1[1]) + (center[1] - x0[1]) * drift,
-            ],
-            z1,
-        )
+            ]
+        };
+        let mut p = push(focus);
+        // A claw taking over a fading FLASH glides from Clare to the yoma.
+        if let Some(prev) = cut.handoff.as_ref().and_then(|h| hex_of(&h.unit_id)) {
+            let (a, t) = (push(prev), cut.takeover(self.fx.time));
+            p = [a[0] + (p[0] - a[0]) * t, a[1] + (p[1] - a[1]) * t];
+        }
+        (p, z1)
     }
 
     pub fn clamped_combat_zoom(&self, zoom: f32) -> f32 {
