@@ -42,14 +42,47 @@ impl Renderer {
                 depth_stencil: Some(gpu::RenderTarget {
                     view: self.depth_view,
                     init_op: gpu::InitOp::Clear(gpu::TextureColor::White),
-                    finish_op: gpu::FinishOp::Discard,
+                    finish_op: gpu::FinishOp::Store,
                 }),
             },
         ) {
             if game.mode == Mode::Combat {
                 if let Some(combat) = game.combat.as_ref() {
-                    self.draw_board(&mut pass, combat, game, w, h);
+                    self.draw_board(&mut pass, combat, game, w, h, false);
                 }
+            }
+        }
+        // Move / threat hex overlays sit on the cells but under the fighters.
+        if let Some(combat) = game.combat.as_ref().filter(|_| game.mode == Mode::Combat) {
+            if let mut pass = encoder.render(
+                "hex-overlays",
+                gpu::RenderTargetSet {
+                    colors: &[gpu::RenderTarget {
+                        view: target,
+                        init_op: gpu::InitOp::Load,
+                        finish_op: gpu::FinishOp::Store,
+                    }],
+                    depth_stencil: None,
+                },
+            ) {
+                self.draw_hex_overlays(&mut pass, game, w, h);
+            }
+            if let mut pass = encoder.render(
+                "fighters",
+                gpu::RenderTargetSet {
+                    colors: &[gpu::RenderTarget {
+                        view: target,
+                        init_op: gpu::InitOp::Load,
+                        finish_op: gpu::FinishOp::Store,
+                    }],
+                    depth_stencil: Some(gpu::RenderTarget {
+                        view: self.depth_view,
+                        init_op: gpu::InitOp::Load,
+                        finish_op: gpu::FinishOp::Discard,
+                    }),
+                },
+            ) {
+                self.draw_board(&mut pass, combat, game, w, h, true);
             }
         }
         if let mut pass = encoder.render(

@@ -44,23 +44,59 @@ pub fn beat_due(now: f32, at: Option<f32>) -> bool {
     at.map(|t| now + 1e-4 >= t).unwrap_or(false)
 }
 
-/// Anime claw cut-in: speed lines + camera push-in around one windup.
+/// FLASH (Quicksword) cut-in ease-in: a hair snappier than the claw.
+pub const FLASH_IN: f32 = 0.10;
+/// FLASH cut-in hold at full strength. The strike already resolved, so this
+/// is a purely presentational beat; it never blocks input.
+pub const FLASH_HOLD: f32 = 0.20;
+/// FLASH cut-in ease-out (camera eases back off Clare).
+pub const FLASH_OUT: f32 = 0.22;
+
+/// Which side owns the cut-in: a yoma claw windup (blood) or Clare's FLASH
+/// (pale silver / yoki gold-white).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CutInKind {
+    #[default]
+    Claw,
+    Flash,
+}
+
+impl CutInKind {
+    /// (ease-in, ease-out) seconds.
+    pub fn ramps(self) -> (f32, f32) {
+        match self {
+            CutInKind::Claw => (CUTIN_IN, CUTIN_OUT),
+            CutInKind::Flash => (FLASH_IN, FLASH_OUT),
+        }
+    }
+}
+
+/// Anime cut-in: speed lines + camera push-in around one windup or FLASH.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CutIn {
     pub unit_id: String,
     pub start: f32,
-    /// When the claw lands; the cut-in eases out over `CUTIN_OUT` after this.
+    /// When the claw lands (or the FLASH hold ends); the cut-in eases out
+    /// over the kind's ease-out after this.
     pub strike_at: f32,
+    pub kind: CutInKind,
 }
 
 impl CutIn {
     pub fn end(&self) -> f32 {
-        self.strike_at + CUTIN_OUT
+        self.strike_at + self.kind.ramps().1
     }
 
     pub fn strength(&self, now: f32) -> f32 {
-        cutin_envelope(now, self.start, self.strike_at)
+        let (rin, rout) = self.kind.ramps();
+        envelope(now, self.start, self.strike_at, rin, rout)
     }
+}
+
+/// Presentational FLASH cut-in on the striker: the Quicksword already landed
+/// (instant resolve), so the push only frames it and then eases back.
+pub fn flash_cutin(unit_id: &str, now: f32) -> CutIn {
+    CutIn { unit_id: unit_id.into(), start: now, strike_at: now + FLASH_HOLD, kind: CutInKind::Flash }
 }
 
 fn smoothstep(x: f32) -> f32 {
@@ -72,7 +108,7 @@ fn smoothstep(x: f32) -> f32 {
 /// up from the current strength instead of snapping the camera back out.
 pub fn rearm_cutin(prev: Option<&CutIn>, unit_id: &str, now: f32, windup: f32) -> CutIn {
     let k = prev
-        .filter(|c| c.unit_id == unit_id)
+        .filter(|c| c.unit_id == unit_id && c.kind == CutInKind::Claw)
         .map(|c| c.strength(now))
         .unwrap_or(0.0);
     // Invert the smoothstep rise closely enough: start earlier by k of the ramp.
@@ -81,6 +117,7 @@ pub fn rearm_cutin(prev: Option<&CutIn>, unit_id: &str, now: f32, windup: f32) -
         unit_id: unit_id.into(),
         start,
         strike_at: now + windup,
+        kind: CutInKind::Claw,
     }
 }
 
@@ -92,16 +129,20 @@ fn inv_smoothstep(y: f32) -> f32 {
 
 /// 0 → 1 over `CUTIN_IN`, hold until the strike, 1 → 0 over `CUTIN_OUT`.
 pub fn cutin_envelope(now: f32, start: f32, strike_at: f32) -> f32 {
+    envelope(now, start, strike_at, CUTIN_IN, CUTIN_OUT)
+}
+
+fn envelope(now: f32, start: f32, strike_at: f32, rin: f32, rout: f32) -> f32 {
     if now < start {
         return 0.0;
     }
-    let rise = smoothstep((now - start) / CUTIN_IN);
+    let rise = smoothstep((now - start) / rin);
     if now <= strike_at {
         return rise;
     }
-    // A windup shorter than CUTIN_IN eases out from wherever it reached.
-    let peak = smoothstep((strike_at - start) / CUTIN_IN);
-    peak * (1.0 - smoothstep((now - strike_at) / CUTIN_OUT))
+    // A windup shorter than the ease-in eases out from wherever it reached.
+    let peak = smoothstep((strike_at - start) / rin);
+    peak * (1.0 - smoothstep((now - strike_at) / rout))
 }
 
 /// Zoom during the cut-in. Stays inside the HUD fit cap unless the player is
@@ -254,6 +295,37 @@ pub fn wash_edge_alpha(strength: f32) -> f32 {
     1.0 - (1.0 - a).powi(WASH_RINGS as i32)
 }
 
+/// FLASH wash as `(rect, rgba)` quads: a pale yoki lift over everything, a
+/// gold-white glare thickening toward the edges (bottom bands end at the
+/// action panel `panel_top`) and the same ink letterbox bar as the claw.
+pub fn flash_wash(strength: f32, panel_top: f32) -> Vec<(Rect, [f32; 4])> {
+    let k = strength.clamp(0.0, 1.0);
+    let mut out = Vec::new();
+    if k <= 0.01 {
+        return out;
+    }
+    out.push(([0.0, 0.0, 1.0, 1.0], [0.86, 0.88, 0.92, 0.015 * k]));
+    for i in 0..WASH_RINGS {
+        let d = 0.035 * (i + 1) as f32;
+        let c = [0.98, 0.93, 0.76, FLASH_BAND_ALPHA * k];
+        out.push(([0.0, 0.0, 1.0, d * 0.8], c));
+        out.push(([0.0, panel_top - d * 0.35, 1.0, d * 0.35], c));
+        out.push(([0.0, 0.0, d, 1.0], c));
+        out.push(([1.0 - d, 0.0, d, 1.0], c));
+    }
+    out.push(([0.0, 0.0, 1.0, LETTERBOX_H * k], [0.0, 0.0, 0.0, 0.9 * k]));
+    out
+}
+
+/// Alpha of one FLASH glare band at full strength. Blending runs in linear
+/// space on an sRGB target, so pale-on-dark needs far less alpha than the
+/// claw's ink to read as the same weight.
+pub const FLASH_BAND_ALPHA: f32 = 0.02;
+/// Gold-white FLASH speed streaks (claw streaks are bone-white ink).
+pub const FLASH_STREAK: [f32; 3] = [1.0, 0.95, 0.74];
+/// FLASH cut-in caption.
+pub const FLASH_CAPTION: &str = "QUICKSWORD";
+
 fn hash(i: u32) -> f32 {
     let mut x = i.wrapping_mul(0x9E37_79B9).wrapping_add(0x7F4A_7C15);
     x ^= x >> 15;
@@ -308,7 +380,7 @@ mod tests {
             assert!(v <= prev + 1e-6);
             prev = v;
         }
-        let c = CutIn { unit_id: "y".into(), start: s, strike_at: k };
+        let c = CutIn { unit_id: "y".into(), start: s, strike_at: k, kind: CutInKind::Claw };
         assert!((c.end() - (k + CUTIN_OUT)).abs() < 1e-6);
         // Whole cut-in is short: windup + ease-out.
         assert!(c.end() - c.start <= 1.0);
@@ -433,5 +505,45 @@ mod tests {
         let bar = |k: f32| cutin_wash(k, 0.84).iter().rev().next().map(|(r, _)| r[3]).unwrap();
         assert!(bar(0.5) < bar(1.0));
         assert!((bar(1.0) - LETTERBOX_H).abs() < 1e-6);
+    }
+
+    #[test]
+    fn flash_cutin_is_short_and_eases_back() {
+        let c = flash_cutin("clare", 3.0);
+        assert_eq!(c.kind, CutInKind::Flash);
+        assert_eq!(c.strength(2.99), 0.0);
+        assert!((c.strength(3.0 + FLASH_IN * 0.5) - 0.5).abs() < 1e-4);
+        assert!((c.strength(3.0 + FLASH_IN) - 1.0).abs() < 1e-6);
+        assert!((c.strength(c.strike_at) - 1.0).abs() < 1e-6, "held");
+        assert!((c.strength(c.strike_at + FLASH_OUT * 0.5) - 0.5).abs() < 1e-4);
+        assert_eq!(c.strength(c.end()), 0.0);
+        assert!((c.end() - (3.0 + FLASH_HOLD + FLASH_OUT)).abs() < 1e-6);
+        // Shorter than the claw's whole cut-in (windup + ease-out).
+        assert!(c.end() - c.start <= 0.5);
+        assert!(c.end() - c.start < ENEMY_WINDUP + CUTIN_OUT);
+        // A claw arming over a live FLASH (a different unit) starts its own.
+        let claw = rearm_cutin(Some(&c), "yoma-0", 3.2, ENEMY_WINDUP);
+        assert_eq!(claw.kind, CutInKind::Claw);
+        assert_eq!(claw.strength(3.2), 0.0);
+    }
+
+    #[test]
+    fn flash_wash_is_pale_yoki_not_blood() {
+        assert!(flash_wash(0.0, 0.84).is_empty());
+        let full = flash_wash(1.0, 0.84);
+        assert_eq!(full.len(), cutin_wash(1.0, 0.84).len());
+        let centre = [0.5, 0.45];
+        let over: Vec<_> = full
+            .iter()
+            .filter(|(r, _)| centre[0] >= r[0] && centre[0] <= r[0] + r[2] && centre[1] >= r[1] && centre[1] <= r[1] + r[3])
+            .collect();
+        assert_eq!(over.len(), 1, "centre only gets the light lift");
+        assert!(over[0].1[3] <= 0.1, "board stays readable under the glare");
+        for (r, c) in &full[..full.len() - 1] {
+            assert!(r[1] + r[3] <= 0.84 + 1e-5 || r[3] >= 1.0, "{r:?} spills under the HUD");
+            assert!(c[0].min(c[1]).min(c[2]) > 0.7, "pale silver/gold-white, got {c:?}");
+            assert!(c[1] > c[0] * 0.8, "never blood-red: {c:?}");
+        }
+        assert!(FLASH_STREAK[0] >= FLASH_STREAK[1] && FLASH_STREAK[1] > FLASH_STREAK[2]);
     }
 }
