@@ -147,6 +147,9 @@ pub const TILE_SCALE: f32 = 0.92;
 /// gaps, and the rest is a visible rim around the outermost tiles.
 pub const GROUND_SCALE: f32 = 1.2;
 
+/// Outlying nest rocks sit at most this many hexes past the board edge.
+pub const NEST_RING: f32 = 5.0;
+
 /// `HuntLocal::pose.xyz` (cos, sin, shear) for terrain prisms and ground plinths.
 pub const BOARD_PRISM_POSE: [f32; 3] = [1.0, 0.0, 0.0];
 
@@ -223,8 +226,9 @@ pub fn board_depth_origin_scale(cols: i32, rows: i32, size: f32, yaw: u8) -> [f3
         }
     }
     // Covers ground plinths and prism radii, raised terrain, and animated
-    // fighters extending two tiles horizontally and four tiles above any cell.
-    depth_origin_scale([cx, 0.0, cz], extent + size * (8.0 + 2.0 * GROUND_SCALE))
+    // fighters extending two tiles horizontally and four tiles above any cell,
+    // plus the nest rocks scattered up to `NEST_RING` hexes past the edge.
+    depth_origin_scale([cx, 0.0, cz], extent + size * (8.0 + 2.0 * GROUND_SCALE + NEST_RING * 3.0))
 }
 
 pub fn camera_origin(
@@ -418,7 +422,10 @@ mod tests {
         assert!(source.contains(
             "let depth = 0.5 - dot(p - globals.depth_origin_scale.xyz, vec3<f32>(1.0)) * globals.depth_origin_scale.w;"
         ));
-        assert!(source.contains("o.clip = vec4<f32>(ndc_x, ndc_y, depth, 1.0);"));
+        // Everything but the nest floor keeps the linear depth; the floor is
+        // pinned behind it (it lies below every cell and fighter).
+        assert!(source.contains("var z = depth; if (abs(locals.mat.x - MAT_GROUND) < 0.5) { z = 0.9995; }"));
+        assert!(source.contains("o.clip = vec4<f32>(ndc_x, ndc_y, z, 1.0);"));
     }
 
     #[test]

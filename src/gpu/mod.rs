@@ -117,6 +117,8 @@ struct HuntLocal {
     /// Rim light: rgb tint, w = strength (0 = off). Grazing normals on the
     /// silhouette pick it up so yoma read as heavy, wet mass on dark boards.
     rim: [f32; 4],
+    /// Material kind, seed, clearing radius (tiles), tile size (world units).
+    mat: [f32; 4],
     joints: [[f32; 12]; 8],
 }
 
@@ -200,6 +202,8 @@ mod util;
 mod create;
 mod frame;
 mod board;
+mod nest;
+mod chrome;
 mod title_intro;
 mod world_town;
 mod combat_ui;

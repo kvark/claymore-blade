@@ -15,6 +15,7 @@ struct Locals {
     color: vec4<f32>,
     pose: vec4<f32>,
     rim: vec4<f32>,
+    mat: vec4<f32>,
     joints: array<mat3x4<f32>, 8>,
 };
 var<uniform> locals: Locals;
@@ -29,7 +30,23 @@ struct Vertex {
 struct VSOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) color: vec4<f32>,
+    // Board-relative position in tile units (xyz) + time (w), for the
+    // per-pixel terrain / ground materials. Varyings only: fs_main reads no
+    // uniforms, so WebGL2 never sees a block shared by both stages.
+    @location(1) rel: vec4<f32>,
+    @location(2) normal: vec3<f32>,
+    // Material: kind, seed, board radius (tiles), unused. Constant per draw.
+    @location(3) mat: vec4<f32>,
 };
+
+// Material kinds (`HuntLocal::mat.x`); see `gpu::board::Material`.
+const MAT_MOSS: f32 = 1.0;
+const MAT_MUD: f32 = 2.0;
+const MAT_STONE: f32 = 3.0;
+const MAT_WATER: f32 = 4.0;
+const MAT_GROUND: f32 = 5.0;
+const MAT_ROCK: f32 = 6.0;
+const FOG: vec3<f32> = vec3<f32>(0.010, 0.011, 0.014);
 
 fn unpack_joints(raw: u32) -> vec4<u32> {
     return (vec4<u32>(raw) >> vec4<u32>(0u, 8u, 16u, 24u)) & vec4<u32>(0xFFu);
@@ -96,13 +113,111 @@ fn vs_main(v: Vertex) -> VSOut {
     let facing = abs(dot(n, vec3<f32>(0.57735027)));
     let edge = 1.0 - facing;
     lit += locals.rim.xyz * (locals.rim.w * edge * edge);
+    // Cool sky fill from above so nothing sits in a dead-black studio void.
+    lit += locals.color.xyz * vec3<f32>(0.07, 0.08, 0.10) * (0.6 + 0.4 * n.y);
     var o: VSOut;
-    o.clip = vec4<f32>(ndc_x, ndc_y, depth, 1.0);
+    // The nest floor sits below every board cell and fighter: pin it to the
+    // far plane so its huge extent never touches the board's depth range.
+    var z = depth;
+    if (abs(locals.mat.x - MAT_GROUND) < 0.5) {
+        z = 0.9995;
+    }
+    o.clip = vec4<f32>(ndc_x, ndc_y, z, 1.0);
     o.color = vec4<f32>(lit, 1.0);
+    let inv = 1.0 / max(locals.mat.w, 0.0001);
+    o.rel = vec4<f32>((p - globals.depth_origin_scale.xyz) * inv, globals.screen.z);
+    o.normal = n;
+    o.mat = locals.mat;
     return o;
+}
+
+fn hash2(p: vec2<f32>) -> f32 {
+    let q = fract(p * vec2<f32>(0.1031, 0.1030));
+    let r = q + dot(q, q.yx + 33.33);
+    return fract((r.x + r.y) * r.x);
+}
+
+fn vnoise(p: vec2<f32>) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let u = f * f * (3.0 - 2.0 * f);
+    let a = hash2(i);
+    let b = hash2(i + vec2<f32>(1.0, 0.0));
+    let c = hash2(i + vec2<f32>(0.0, 1.0));
+    let d = hash2(i + vec2<f32>(1.0, 1.0));
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+fn fbm(p: vec2<f32>) -> f32 {
+    return vnoise(p) * 0.55 + vnoise(p * 2.03 + 17.0) * 0.3 + vnoise(p * 4.11 + 41.0) * 0.15;
+}
+
+// Albedo multiplier for a terrain top face; the CPU tint (incl. occupancy)
+// stays the base hue, so move / threat / hover read through the texture.
+fn terrain_top(kind: f32, uv: vec2<f32>, t: f32) -> vec3<f32> {
+    let n = fbm(uv * 2.6);
+    let fine = vnoise(uv * 11.0);
+    if (kind < MAT_MUD - 0.5) {
+        // Moss: clumps of lighter growth over dark root mats, fine speckle.
+        let clump = smoothstep(0.35, 0.75, n);
+        return mix(vec3<f32>(0.55, 0.62, 0.50), vec3<f32>(1.25, 1.30, 1.05), clump) * (0.82 + 0.3 * fine);
+    }
+    if (kind < MAT_STONE - 0.5) {
+        // Mud: churned earth, dark wet puddles with a faint sheen.
+        let wet = smoothstep(0.58, 0.68, n);
+        let base = vec3<f32>(0.75 + 0.45 * fine);
+        return mix(base, vec3<f32>(0.42, 0.40, 0.44), wet) + vec3<f32>(0.10) * wet * fine;
+    }
+    if (kind < MAT_WATER - 0.5) {
+        // Stone: worn flagstones split by dark cracks.
+        let crack = 1.0 - smoothstep(0.0, 0.05, abs(vnoise(uv * 3.2 + 5.0) - 0.5));
+        let slab = 0.78 + 0.35 * n + 0.12 * fine;
+        return vec3<f32>(slab * (1.0 - 0.65 * crack));
+    }
+    // Water: still black pool with slow ripples catching the light.
+    let ripple = sin(uv.x * 7.0 + uv.y * 3.0 + n * 6.0 + t * 1.3) * 0.5 + 0.5;
+    return vec3<f32>(0.7 + 0.25 * n) + vec3<f32>(0.25, 0.30, 0.38) * pow(ripple, 8.0);
 }
 
 @fragment
 fn fs_main(v: VSOut) -> @location(0) vec4<f32> {
-    return v.color;
+    let kind = v.mat.x;
+    if (kind < 0.5) {
+        return v.color;
+    }
+    let uv = v.rel.xz + vec2<f32>(v.mat.y * 7.3, v.mat.y * 3.1);
+    let dist = length(v.rel.xz);
+    let radius = max(v.mat.z, 1.0);
+    // Ground fog: the lit clearing fades into mist a few tiles past the dais.
+    let mist = vnoise(v.rel.xz * 0.35 + vec2<f32>(v.rel.w * 0.05, v.rel.w * 0.02));
+    let fog = clamp(smoothstep(radius + 1.0, radius + 9.0, dist) + (mist - 0.5) * 0.35, 0.0, 1.0);
+    if (kind > MAT_GROUND - 0.5 && kind < MAT_ROCK - 0.5) {
+        // Nest floor: dark loam with moss and pale bone grit, lit only near
+        // the board (lamp pool) and swallowed by fog beyond.
+        let n = fbm(v.rel.xz * 0.9);
+        let moss = smoothstep(0.55, 0.8, fbm(v.rel.xz * 0.4 + 9.0));
+        let grit = step(0.93, vnoise(v.rel.xz * 9.0));
+        var alb = mix(vec3<f32>(0.026, 0.021, 0.017), vec3<f32>(0.016, 0.026, 0.012), moss) * (0.6 + 0.8 * n);
+        alb += vec3<f32>(0.03, 0.028, 0.025) * grit;
+        let pool = 1.0 - smoothstep(radius * 0.6, radius + 6.0, dist);
+        let lit = alb * (0.35 + 2.0 * pool);
+        return vec4<f32>(mix(lit, FOG, fog), 1.0);
+    }
+    var m: vec3<f32>;
+    if (kind > MAT_ROCK - 0.5) {
+        // Dais / boulders: rough dark stone, strata on the sides.
+        let n = fbm(vec2<f32>(v.rel.x + v.rel.z, v.rel.y * 3.0) * 1.7 + uv);
+        m = vec3<f32>(0.65 + 0.6 * n);
+    } else if (v.normal.y > 0.5) {
+        m = terrain_top(kind, uv, v.rel.w);
+    } else {
+        // Tile sides: packed earth strata under every terrain kind.
+        let n = vnoise(vec2<f32>(v.rel.x + v.rel.z, v.rel.y * 9.0) * 2.0);
+        m = vec3<f32>(0.62, 0.55, 0.50) * (0.7 + 0.5 * n);
+    }
+    var c = v.color.xyz * m;
+    if (kind > MAT_ROCK - 0.5) {
+        c = mix(c, FOG, fog);
+    }
+    return vec4<f32>(c, 1.0);
 }

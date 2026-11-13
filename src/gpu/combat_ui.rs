@@ -1,4 +1,5 @@
 use super::*;
+use super::chrome;
 
 impl Renderer {
     pub(super) fn draw_combat_overlay(
@@ -120,15 +121,7 @@ impl Renderer {
                         [0.95, 0.82, 0.35, 0.4],
                     );
                 }
-                self.bar(
-                    &mut rc,
-                    hp[0],
-                    hp[1],
-                    hp[2],
-                    hp[3],
-                    u.hp as f32 / u.max_hp.max(1) as f32,
-                    BLOOD,
-                );
+                self.ink_bar(&mut rc, hp, u.hp as f32 / u.max_hp.max(1) as f32, BLOOD, w, h);
                 continue;
             }
             let ground = combat.terrain.iter()
@@ -167,24 +160,16 @@ impl Renderer {
                 );
             }
             let hp = portrait_hp_bar(portrait[0], portrait[1], portrait[2], portrait[3]);
-            self.bar(
-                &mut rc,
-                hp[0],
-                hp[1],
-                hp[2],
-                hp[3],
-                u.hp as f32 / u.max_hp.max(1) as f32,
-                BLOOD,
-            );
+            self.ink_bar(&mut rc, hp, u.hp as f32 / u.max_hp.max(1) as f32, BLOOD, w, h);
         }
-        self.draw_claw_cutin(&mut rc, game, w, h);
         let bar = hud::combat_bar();
-        self.blit_px(
-            &mut rc,
-            self.tex("kenney/ui/panel.png"),
-            [0.0, bar.wait.y - 0.03, 1.0, 1.0 - (bar.wait.y - 0.03)],
-            [0.32, 0.26, 0.20, 0.92],
-        );
+        let panel_top = bar.wait.y - 0.03;
+        self.nest_vignette(&mut rc, panel_top);
+        self.draw_claw_cutin(&mut rc, game, w, h);
+        // Ink action panel with a worn-steel seam over a dried-blood hairline.
+        self.rect(&mut rc, [0.0, panel_top, 1.0, 1.0 - panel_top], chrome::INK);
+        self.rect(&mut rc, [0.0, panel_top, 1.0, 1.0 / h], chrome::STEEL_EDGE);
+        self.rect(&mut rc, [0.0, panel_top + 1.0 / h, 1.0, 2.0 / h], chrome::BLOOD_INK);
         if let Some(u) = current_unit(combat) {
             let py = bar.wait.y - 0.018;
             self.blit(
@@ -193,6 +178,7 @@ impl Renderer {
                 [0.012, py, 0.08, 0.118],
                 [1.0; 4],
             );
+            self.steel_frame(&mut rc, [0.012, py, 0.08, 0.118], w, h);
             self.text(
                 &mut rc,
                 &format!("{}  AP {}", u.name, u.ap),
@@ -200,50 +186,18 @@ impl Renderer {
                 py,
                 0.012,
             );
-            self.bar(
-                &mut rc,
-                0.10,
-                py + 0.026,
-                0.22,
-                0.016,
-                u.hp as f32 / u.max_hp.max(1) as f32,
-                BLOOD,
-            );
+            self.ink_bar(&mut rc, [0.10, py + 0.026, 0.22, 0.014], u.hp as f32 / u.max_hp.max(1) as f32, BLOOD, w, h);
             // Trans is danger (open the bar), not a second HP bar — number + band + tint.
-            self.bar(
-                &mut rc,
-                0.10,
-                py + 0.046,
-                0.22,
-                0.012,
-                u.trans as f32 / 100.0,
-                trans_fill_tint(u.trans),
-            );
+            self.ink_bar(&mut rc, [0.10, py + 0.046, 0.22, 0.010], u.trans as f32 / 100.0, trans_fill_tint(u.trans), w, h);
         }
         let sel = game.ui.selected_skill.as_deref();
         // Same predicate as input: turn buttons dim while yoma beats / windups play.
         let live = game.combat_input_open();
         // Larger ash glyphs on the bar only — inactive WAIT/RAISE were weak tan-on-tan.
-        self.kenney_btn_state(&mut rc, "kenney/ui/button-grey.png", bar.wait, "WAIT", false, 0.026, live);
-        self.kenney_btn_state(&mut rc, "kenney/ui/button.png", bar.raise, "RAISE", false, 0.026, live);
-        self.kenney_btn_state(
-            &mut rc,
-            "kenney/ui/button-brown.png",
-            bar.guard,
-            "GUARD",
-            sel == Some("guard"),
-            0.026,
-            live,
-        );
-        self.kenney_btn_state(
-            &mut rc,
-            "kenney/ui/button.png",
-            bar.cut,
-            "CUT",
-            sel == Some("cut"),
-            0.026,
-            live,
-        );
+        self.ink_btn(&mut rc, bar.wait, "WAIT", false, false, false, live, w, h);
+        self.ink_btn(&mut rc, bar.raise, "RAISE", false, false, false, live, w, h);
+        self.ink_btn(&mut rc, bar.guard, "GUARD", sel == Some("guard"), false, false, live, w, h);
+        self.ink_btn(&mut rc, bar.cut, "CUT", sel == Some("cut"), false, false, live, w, h);
         let slot_id = current_unit(combat)
             .and_then(|u| u.skills.get(4))
             .map(|s| s.as_str());
@@ -261,31 +215,11 @@ impl Renderer {
             (Some(u), Some(skill)) => skill_slot_ready(u.trans, skill.trans),
             _ => false,
         };
-        // Grey = locked under the skill's trans gate; brown plate when the bar is open.
-        let slot_tex = if slot_ready {
-            "kenney/ui/button-brown.png"
-        } else {
-            "kenney/ui/button-grey.png"
-        };
-        self.kenney_btn_state(
-            &mut rc,
-            slot_tex,
-            bar.slot,
-            &slot_label,
-            slot_hot,
-            0.026,
-            live,
-        );
+        // Blood tick = the trans gate is open; a locked slot keeps a bare plate.
+        self.ink_btn(&mut rc, bar.slot, &slot_label, slot_hot, slot_ready, false, live, w, h);
         // FALL stays lit: forfeit is a retreat, not a turn action, and it is
         // accepted during enemy beats (like Esc-Esc flee).
-        self.kenney_btn_ex(
-            &mut rc,
-            "kenney/ui/button-red.png",
-            bar.forfeit,
-            "FALL",
-            false,
-            0.026,
-        );
+        self.ink_btn(&mut rc, bar.forfeit, "FALL", false, false, true, true, w, h);
         // BAR N BAND must sit above the button row (and after it in draw order) —
         // previously py+0.044 ≈ 0.891 sat under WAIT/RAISE/GUARD plates.
         if let Some(u) = current_unit(combat) {
@@ -315,7 +249,7 @@ impl Renderer {
         self.text(&mut rc, combat.title.as_str(), 0.02, 0.02, 0.014);
         self.text(&mut rc, "Q / E  ROTATE", 0.72, 0.02, 0.011);
         self.prompt(&mut rc, "kenney/prompt/esc.png", 0.92, 0.02, 0.04);
-        self.draw_turn_queue(&mut rc, combat);
+        self.draw_turn_queue(&mut rc, combat, w, h);
         if game.fast_forwarding() {
             // Small "x2" indicator under the rotate hint while beats are sped up.
             self.text_tint(&mut rc, "X2  FAST", 0.72, 0.05, 0.016, [0.95, 0.82, 0.45, 1.0]);
@@ -370,6 +304,8 @@ impl Renderer {
         &self,
         rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>,
         combat: &CombatState,
+        w: f32,
+        h: f32,
     ) {
         let ids = queue_ids(&combat.order, combat.turn, &combat.units);
         if ids.is_empty() {
@@ -386,12 +322,9 @@ impl Renderer {
         let total_w = n * CHIP_W + (n - 1.0).max(0.0) * GAP;
         let start_x = ((1.0 - total_w) * 0.5).max(0.02);
         // Ink plate behind the strip (existing HUD language).
-        self.blit_px(
-            rc,
-            self.tex("kenney/ui/panel.png"),
-            [start_x - 0.012, Y - 0.010, total_w + 0.024, CHIP_H + 0.028],
-            [0.08, 0.06, 0.05, 0.88],
-        );
+        let plate = [start_x - 0.012, Y - 0.010, total_w + 0.024, CHIP_H + 0.028];
+        self.rect(rc, plate, chrome::INK);
+        self.steel_frame(rc, plate, w, h);
         for (i, id) in show.iter().enumerate() {
             let Some(u) = combat.units.iter().find(|u| u.id == **id) else {
                 continue;
