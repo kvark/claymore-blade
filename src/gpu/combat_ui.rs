@@ -2,7 +2,9 @@ use super::*;
 use super::chrome;
 
 impl Renderer {
-    pub(super) fn draw_combat_overlay(
+    /// Move / skill / claw-threat hex overlays, drawn between the board cells
+    /// and the fighters so a translucent overlay never washes over a body.
+    pub(super) fn draw_hex_overlays(
         &self,
         pass: &mut gpu::RenderCommandEncoder,
         game: &Game,
@@ -17,16 +19,7 @@ impl Renderer {
         let pan = Self::pan(game, w, h);
         let zoom = game.view_camera().1;
         let yaw = game.ui.yaw;
-        let (ox, oy) = camera_origin(
-            combat.cols,
-            combat.rows,
-            size,
-            w,
-            h,
-            pan,
-            zoom,
-            yaw,
-        );
+        let (ox, oy) = camera_origin(combat.cols, combat.rows, size, w, h, pan, zoom, yaw);
         let preview = game.preview_zone();
         let threat = game.threat_zone();
         let skill_on = game.ui.selected_skill.is_some();
@@ -70,6 +63,33 @@ impl Renderer {
                 ttint,
             );
         }
+    }
+
+    pub(super) fn draw_combat_overlay(
+        &self,
+        pass: &mut gpu::RenderCommandEncoder,
+        game: &Game,
+        w: f32,
+        h: f32,
+    ) {
+        let Some(combat) = game.combat.as_ref() else {
+            return;
+        };
+        let mut rc = pass.with(&self.flat);
+        let size = board_size(combat.cols, combat.rows, w, h);
+        let pan = Self::pan(game, w, h);
+        let zoom = game.view_camera().1;
+        let yaw = game.ui.yaw;
+        let (ox, oy) = camera_origin(
+            combat.cols,
+            combat.rows,
+            size,
+            w,
+            h,
+            pan,
+            zoom,
+            yaw,
+        );
         for (hex, terrain) in &combat.terrain {
             if *terrain != Terrain::Ruin {
                 continue;
@@ -165,30 +185,24 @@ impl Renderer {
         let bar = hud::combat_bar();
         let panel_top = bar.wait.y - 0.03;
         self.nest_vignette(&mut rc, panel_top);
-        self.draw_claw_cutin(&mut rc, game, w, h);
+        self.draw_cutin(&mut rc, game, w, h);
         // Ink action panel with a worn-steel seam over a dried-blood hairline.
         self.rect(&mut rc, [0.0, panel_top, 1.0, 1.0 - panel_top], chrome::INK);
         self.rect(&mut rc, [0.0, panel_top, 1.0, 1.0 / h], chrome::STEEL_EDGE);
         self.rect(&mut rc, [0.0, panel_top + 1.0 / h, 1.0, 2.0 / h], chrome::BLOOD_INK);
         if let Some(u) = current_unit(combat) {
-            let py = bar.wait.y - 0.018;
-            self.blit(
-                &mut rc,
-                self.tex(&u.portrait),
-                [0.012, py, 0.08, 0.118],
-                [1.0; 4],
-            );
-            self.steel_frame(&mut rc, [0.012, py, 0.08, 0.118], w, h);
-            self.text(
-                &mut rc,
-                &format!("{}  AP {}", u.name, u.ap),
-                0.10,
-                py,
-                0.012,
-            );
-            self.ink_bar(&mut rc, [0.10, py + 0.026, 0.22, 0.014], u.hp as f32 / u.max_hp.max(1) as f32, BLOOD, w, h);
+            // Unit card sits above the action panel (it used to hide under
+            // WAIT / RAISE), so HP, trans and the BAR N BAND label all read.
+            let card = unit_card(bar.wait.y);
+            self.rect(&mut rc, card.plate, chrome::INK);
+            self.steel_frame(&mut rc, card.plate, w, h);
+            self.blit(&mut rc, self.tex(&u.portrait), card.portrait, [1.0; 4]);
+            self.steel_frame(&mut rc, card.portrait, w, h);
+            self.text(&mut rc, &format!("{}  AP {}", u.name, u.ap), card.name[0], card.name[1], card.name[3]);
+            self.ink_bar(&mut rc, card.hp, u.hp as f32 / u.max_hp.max(1) as f32, BLOOD, w, h);
             // Trans is danger (open the bar), not a second HP bar — number + band + tint.
-            self.ink_bar(&mut rc, [0.10, py + 0.046, 0.22, 0.010], u.trans as f32 / 100.0, trans_fill_tint(u.trans), w, h);
+            self.ink_bar(&mut rc, card.trans, u.trans as f32 / 100.0, trans_fill_tint(u.trans), w, h);
+            self.text_tint(&mut rc, &trans_meter_label(u.trans), card.label[0], card.label[1], card.label[3], ASH_TYPE);
         }
         let sel = game.ui.selected_skill.as_deref();
         // Same predicate as input: turn buttons dim while yoma beats / windups play.
@@ -220,18 +234,6 @@ impl Renderer {
         // FALL stays lit: forfeit is a retreat, not a turn action, and it is
         // accepted during enemy beats (like Esc-Esc flee).
         self.ink_btn(&mut rc, bar.forfeit, "FALL", false, false, true, true, w, h);
-        // BAR N BAND must sit above the button row (and after it in draw order) —
-        // previously py+0.044 ≈ 0.891 sat under WAIT/RAISE/GUARD plates.
-        if let Some(u) = current_unit(combat) {
-            self.text_tint(
-                &mut rc,
-                &trans_meter_label(u.trans),
-                0.33,
-                trans_meter_label_y(bar.wait.y),
-                0.011,
-                ASH_TYPE,
-            );
-        }
         let prompt_y = bar.wait.y - 0.028;
         self.prompt_state(&mut rc, "kenney/prompt/space.png", bar.wait.x + 0.03, prompt_y, 0.028, live);
         self.prompt_state(&mut rc, "kenney/prompt/1.png", bar.cut.x + 0.035, prompt_y, 0.024, live);
@@ -267,11 +269,11 @@ impl Renderer {
         self.draw_fx(&mut rc, game);
     }
 
-    /// Anime claw cut-in: blood-ink vignette + letterbox bars, and horizontal
+    /// Anime cut-in (claw: blood-ink, FLASH: pale yoki glare): vignette + letterbox bar, and horizontal
     /// speed streaks rushing in from the edges that stop short of the board,
     /// its units and the caption. Drawn under the HUD so buttons and the
     /// queue stay crisp.
-    fn draw_claw_cutin(
+    fn draw_cutin(
         &self,
         rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>,
         game: &Game,
@@ -290,12 +292,17 @@ impl Renderer {
         };
         let focus = game.hex_screen(core_hex(u));
         let panel_top = hud::combat_bar().wait.y - 0.03;
-        for (r, c) in crate::game::beats::cutin_wash(k, panel_top) {
+        use crate::game::beats::{self, CutInKind};
+        let (wash, ink) = match cut.kind {
+            CutInKind::Claw => (beats::cutin_wash(k, panel_top), [0.96, 0.93, 0.86]),
+            CutInKind::Flash => (beats::flash_wash(k, panel_top), beats::FLASH_STREAK),
+        };
+        for (r, c) in wash {
             self.rect(rc, r, c);
         }
         let keep_out = game.cutin_keep_out();
-        for l in crate::game::beats::speed_lines(k, game.fx.time, focus, w / h.max(1.0), &keep_out) {
-            self.rect(rc, [l[0], l[1], l[2], l[3]], [0.96, 0.93, 0.86, l[4]]);
+        for l in beats::speed_lines(k, game.fx.time, focus, w / h.max(1.0), &keep_out) {
+            self.rect(rc, [l[0], l[1], l[2], l[3]], [ink[0], ink[1], ink[2], l[4]]);
         }
     }
 
@@ -421,6 +428,33 @@ pub(crate) fn trans_meter_label_y(button_y: f32) -> f32 {
     button_y - 0.040
 }
 
+/// Current-unit card above the action panel: `[x, y, w, h]` rects. Text
+/// rects give the glyph origin and height (`[x, y, width, glyph_h]`).
+pub(crate) struct UnitCard {
+    pub plate: [f32; 4],
+    pub portrait: [f32; 4],
+    pub name: [f32; 4],
+    pub hp: [f32; 4],
+    pub trans: [f32; 4],
+    pub label: [f32; 4],
+}
+
+/// Laid out from the button row's top so it clears WAIT / RAISE and the
+/// enemy-phase caption line (`trans_meter_label_y`) under it.
+pub(crate) fn unit_card(button_y: f32) -> UnitCard {
+    let bottom = trans_meter_label_y(button_y) - 0.010;
+    let plate = [0.012, bottom - 0.086, 0.25, 0.086];
+    let (x, y) = (plate[0] + 0.058, plate[1]);
+    UnitCard {
+        plate,
+        portrait: [plate[0] + 0.006, y + 0.007, 0.046, plate[3] - 0.014],
+        name: [x, y + 0.010, 0.18, 0.012],
+        hp: [x, y + 0.030, 0.18, 0.014],
+        trans: [x, y + 0.050, 0.18, 0.010],
+        label: [x, y + 0.066, 0.18, 0.011],
+    }
+}
+
 /// Skill slot plate lights when unit trans meets the skill's gate (Flash ≥40).
 pub(crate) fn skill_slot_ready(unit_trans: i32, skill_trans: i32) -> bool {
     unit_trans >= skill_trans
@@ -491,7 +525,7 @@ pub(crate) fn mesh_hp_bar(cx: f32, cy: f32, bar_w: f32) -> [f32; 4] {
 mod tests {
     use super::{
         board_portrait_rect, mesh_hp_bar, portrait_hp_bar, queue_chip_label, queue_ids, skill_slot_ready, trans_band,
-        trans_fill_tint, trans_meter_label, trans_meter_label_y,
+        trans_fill_tint, trans_meter_label, trans_meter_label_y, unit_card,
     };
     use crate::combat::{Side, Stats, Unit};
     use crate::hex::Axial;
@@ -685,5 +719,46 @@ mod tests {
         assert!(r[1] > 0.4);
         assert!((r[2] - 0.06).abs() < 1e-6);
         assert!(r[3] >= 0.008 && r[3] <= 0.012);
+    }
+
+    fn overlaps(a: [f32; 4], b: [f32; 4]) -> bool {
+        a[0] < b[0] + b[2] && a[0] + a[2] > b[0] && a[1] < b[1] + b[3] && a[1] + a[3] > b[1]
+    }
+
+    #[test]
+    fn unit_card_bars_clear_the_buttons_and_read() {
+        let bar = crate::hud::combat_bar();
+        let buttons = [bar.wait, bar.raise, bar.guard, bar.cut, bar.slot, bar.forfeit];
+        let panel_top = bar.wait.y - 0.03;
+        let card = unit_card(bar.wait.y);
+        // Longest name + AP and band label must fit the text rects.
+        let text_w = |s: &str, g: f32| g * 0.7 * ((s.chars().count() as f32 - 1.0) * 0.85 + 1.0);
+        assert!(text_w("DENEVE  AP 4", card.name[3]) <= card.name[2]);
+        assert!(text_w(&trans_meter_label(100), card.label[3]) <= card.label[2]);
+        let caption_y = trans_meter_label_y(bar.wait.y);
+        for (w, h) in [(390.0, 844.0), (1024.0, 768.0), (1280.0, 800.0), (1920.0, 1080.0)] {
+            for r in [card.plate, card.portrait, card.name, card.hp, card.trans, card.label] {
+                for b in buttons {
+                    assert!(!overlaps(r, b.pos()), "{r:?} under button {:?} at {w}x{h}", b.pos());
+                }
+                // Above the action panel and the enemy-phase caption line.
+                assert!(r[1] + r[3] <= panel_top && r[1] + r[3] <= caption_y, "{r:?}");
+                assert!(r[0] >= 0.0 && r[0] + r[2] <= 1.0 && r[1] > 0.5);
+                // Inside the ink plate.
+                let p = card.plate;
+                assert!(r[0] >= p[0] && r[1] >= p[1] && r[0] + r[2] <= p[0] + p[2] + 1e-6 && r[1] + r[3] <= p[1] + p[3] + 1e-6);
+            }
+            // Bars stay readable: HP at least 8 px tall, trans at least 6 px.
+            assert!(card.hp[3] * h >= 8.0 && card.trans[3] * h >= 6.0, "{w}x{h}");
+            assert!(card.hp[2] * w >= 60.0);
+        }
+        // Rows stack without overlapping each other.
+        let rows = [card.name, card.hp, card.trans, card.label];
+        for i in 0..rows.len() {
+            for j in i + 1..rows.len() {
+                assert!(!overlaps(rows[i], rows[j]), "{:?} vs {:?}", rows[i], rows[j]);
+            }
+            assert!(!overlaps(rows[i], card.portrait));
+        }
     }
 }

@@ -156,7 +156,12 @@ impl Game {
             };
             act(combat, action.clone(), true);
         }
+        let landed = self.combat.as_ref().map(|c| c.log.len() > log_len).unwrap_or(false);
+        let flash_by = actor.as_ref().map(|a| a.0.clone());
         self.juice_from_act(&before, actor, &action, log_len);
+        if landed {
+            self.arm_flash_cutin(&action, flash_by);
+        }
         // Enemies take one action per beat from here (see `tick_enemy_tell`).
         self.schedule_enemy_beat();
         if !self.combat_input_open() {
@@ -200,6 +205,19 @@ impl Game {
             return vec![];
         };
         zone_for(combat, u, skill, strike.hex)
+    }
+
+    /// FLASH (Quicksword) cut-in: presentational only. The strike already
+    /// resolved, input stays open, and beat timing is untouched.
+    fn arm_flash_cutin(&mut self, action: &PlayerAction, striker: Option<String>) {
+        let (PlayerAction::Skill { id, .. }, Some(unit_id)) = (action, striker) else {
+            return;
+        };
+        if id != "flash" {
+            return;
+        }
+        self.cutin = Some(beats::flash_cutin(&unit_id, self.fx.time));
+        self.fx.emit_hint(0.50, 0.72, beats::FLASH_CAPTION);
     }
 
     pub(super) fn arm_enemy_tell(&mut self, strike: IntendedStrike) {
@@ -955,6 +973,52 @@ mod tests {
         assert_eq!(current_unit(loaded.combat.as_ref().unwrap()).unwrap().id, "clare");
     }
 
+    /// Streaks of the live cut-in stay off every hex top and the caption plate.
+    fn assert_streaks_clear(mut game: Game, caption_text: &str, yaw: u8) {
+        let cut = game.cutin.clone().unwrap();
+        let caption = game
+            .fx
+            .floaters
+            .iter()
+            .find(|f| f.plate && f.text == caption_text)
+            .expect("cut-in shows its caption")
+            .plate_rect();
+        let combat = game.combat.clone().unwrap();
+        let [w, h] = game.ui.screen;
+        let (rin, _) = cut.kind.ramps();
+        let mut seen = 0;
+        for i in 0..24 {
+            game.fx.time = cut.start + rin + i as f32 * 0.021;
+            let k = cut.strength(game.fx.time);
+            let (pan, zoom) = game.view_camera();
+            let tile = crate::iso::board_size(combat.cols, combat.rows, w, h) * zoom;
+            let focus = game.hex_screen(core_hex(
+                combat.units.iter().find(|u| u.id == cut.unit_id).unwrap(),
+            ));
+            let keep = game.cutin_keep_out();
+            for l in super::beats::speed_lines(k, game.fx.time, focus, w / h, &keep) {
+                seen += 1;
+                let (y0, y1) = (l[1], l[1] + l[3]);
+                // Caption plate (independent of the keep-out list).
+                let cap_hit = l[0] < caption[0] + caption[2]
+                    && l[0] + l[2] > caption[0]
+                    && y0 < caption[1] + caption[3]
+                    && y1 > caption[1];
+                assert!(!cap_hit, "yaw {yaw}: streak {l:?} crosses caption {caption:?}");
+                // Every hex top: no streak within a hex radius of a centre.
+                for (hex, _) in &combat.terrain {
+                    let c = crate::iso::hex_to_screen(
+                        *hex, w, h, combat.cols, combat.rows, pan, zoom, 0.0, yaw,
+                    );
+                    let (rx, ry) = (tile * 0.9 / w, tile * 0.5 / h);
+                    let hit = l[0] < c[0] + rx && l[0] + l[2] > c[0] - rx && y0 < c[1] + ry && y1 > c[1] - ry;
+                    assert!(!hit, "yaw {yaw}: streak {l:?} crosses hex {hex:?} at {c:?}");
+                }
+            }
+        }
+        assert!(seen > 24 * 4, "yaw {yaw}: streaks still play in the margins ({seen})");
+    }
+
     #[test]
     fn cutin_streaks_stay_off_the_board_and_the_caption() {
         for (yaw, max_zoom) in [(0u8, false), (1, false), (2, true), (3, true)] {
@@ -963,47 +1027,96 @@ mod tests {
             if max_zoom {
                 game.set_combat_zoom(10.0);
             }
-            let cut = game.cutin.clone().unwrap();
-            let caption = game
-                .fx
-                .floaters
-                .iter()
-                .find(|f| f.plate && f.text == "YOMA REACHES")
-                .expect("first windup shows the caption")
-                .plate_rect();
-            let combat = game.combat.clone().unwrap();
-            let [w, h] = game.ui.screen;
-            let mut seen = 0;
-            for i in 0..24 {
-                game.fx.time = cut.start + super::beats::CUTIN_IN + i as f32 * 0.021;
-                let k = cut.strength(game.fx.time);
-                let (pan, zoom) = game.view_camera();
-                let tile = crate::iso::board_size(combat.cols, combat.rows, w, h) * zoom;
-                let focus = game.hex_screen(core_hex(
-                    combat.units.iter().find(|u| u.id == cut.unit_id).unwrap(),
-                ));
-                let keep = game.cutin_keep_out();
-                for l in super::beats::speed_lines(k, game.fx.time, focus, w / h, &keep) {
-                    seen += 1;
-                    let (y0, y1) = (l[1], l[1] + l[3]);
-                    // Caption plate (independent of the keep-out list).
-                    let cap_hit = l[0] < caption[0] + caption[2]
-                        && l[0] + l[2] > caption[0]
-                        && y0 < caption[1] + caption[3]
-                        && y1 > caption[1];
-                    assert!(!cap_hit, "yaw {yaw}: streak {l:?} crosses caption {caption:?}");
-                    // Every hex top: no streak within a hex radius of a centre.
-                    for (hex, _) in &combat.terrain {
-                        let c = crate::iso::hex_to_screen(
-                            *hex, w, h, combat.cols, combat.rows, pan, zoom, 0.0, yaw,
-                        );
-                        let (rx, ry) = (tile * 0.9 / w, tile * 0.5 / h);
-                        let hit = l[0] < c[0] + rx && l[0] + l[2] > c[0] - rx && y0 < c[1] + ry && y1 > c[1] - ry;
-                        assert!(!hit, "yaw {yaw}: streak {l:?} crosses hex {hex:?} at {c:?}");
-                    }
-                }
+            assert_streaks_clear(game, "YOMA REACHES", yaw);
+        }
+    }
+
+    /// Clare adjacent to a yoma with the FLASH gate open (trans 50) and AP to spare.
+    fn clare_ready_to_flash(trans: i32) -> (Game, Axial) {
+        let mut game = adjacent_yoma(true);
+        let combat = game.combat.as_mut().unwrap();
+        let clare = combat.units.iter_mut().find(|u| u.id == "clare").unwrap();
+        clare.trans = trans;
+        clare.yoki = 30;
+        clare.ap = 3;
+        clare.max_ap = 3;
+        let prey = core_hex(combat.units.iter().find(|u| u.id == "yoma-0").unwrap());
+        (game, prey)
+    }
+
+    fn flash_at(hex: Axial) -> PlayerAction {
+        PlayerAction::Skill { id: "flash".into(), hex }
+    }
+
+    #[test]
+    fn flash_arms_a_presentational_cutin_on_clare() {
+        let (mut game, prey) = clare_ready_to_flash(50);
+        assert!(legal_targets(game.combat.as_ref().unwrap(), "clare", "flash").contains(&prey));
+        // Same outcome as the bare rules call: the cut-in changes nothing.
+        let mut control = game.combat.clone().unwrap();
+        act(&mut control, flash_at(prey), true);
+        game.combat_act(flash_at(prey));
+        assert_eq!(
+            serde_json::to_string(game.combat.as_ref().unwrap()).unwrap(),
+            serde_json::to_string(&control).unwrap(),
+        );
+        let cut = game.cutin.clone().expect("FLASH arms a cut-in");
+        assert_eq!((cut.unit_id.as_str(), cut.kind), ("clare", beats::CutInKind::Flash));
+        assert!(game.fx.floaters.iter().any(|f| f.plate && f.text == beats::FLASH_CAPTION));
+        // Non-blocking: Clare keeps her turn and input stays open; no enemy beat.
+        assert!(game.combat_input_open());
+        assert!(game.enemy_beat_at.is_none() && game.enemy_tell.is_none());
+        // Camera pushes toward Clare, then eases back and the cut-in retires.
+        game.ui.zoom = 0.9;
+        game.fx.time = cut.start + beats::FLASH_IN;
+        assert!(game.view_camera().1 > game.ui.zoom * 1.05);
+        let clare = game.combat.as_ref().unwrap().units.iter().find(|u| u.id == "clare").unwrap().origin;
+        let p = game.hex_screen(clare);
+        assert!(p[0] > 0.05 && p[0] < 0.95 && p[1] > 0.15 && p[1] < 0.85, "{p:?}");
+        game.fx.time = cut.end();
+        game.tick_enemy_tell();
+        assert!(game.cutin.is_none());
+        assert_eq!(game.view_camera(), (game.ui.pan, game.ui.zoom));
+    }
+
+    #[test]
+    fn flash_cutin_needs_a_landed_flash() {
+        // Below the trans 40 gate the rules refuse FLASH: no cut-in.
+        let (mut game, prey) = clare_ready_to_flash(39);
+        game.combat_act(flash_at(prey));
+        assert!(game.cutin.is_none());
+        // Other skills never arm it.
+        let (mut game, prey) = clare_ready_to_flash(50);
+        game.combat_act(PlayerAction::Skill { id: "cut".into(), hex: prey });
+        assert!(game.cutin.is_none());
+    }
+
+    #[test]
+    fn flash_ending_the_turn_keeps_beat_timing() {
+        let (mut game, prey) = clare_ready_to_flash(50);
+        game.combat.as_mut().unwrap().units.iter_mut().find(|u| u.id == "clare").unwrap().ap = 1;
+        let now = game.fx.time;
+        game.combat_act(flash_at(prey));
+        let c = game.combat.as_ref().unwrap();
+        if c.over.is_none() && current_unit(c).map(|u| u.side) == Some(Side::Enemy) {
+            assert_eq!(game.enemy_beat_at, Some(beats::next_beat_at(now)));
+        }
+        assert_eq!(game.cutin.as_ref().unwrap().kind, beats::CutInKind::Flash);
+    }
+
+    #[test]
+    fn flash_streaks_stay_off_the_board_units_and_caption() {
+        for (yaw, max_zoom) in [(0u8, false), (1, false), (2, true), (3, true)] {
+            let (mut game, prey) = clare_ready_to_flash(50);
+            game.ui.yaw = yaw;
+            if max_zoom {
+                game.set_combat_zoom(10.0);
             }
-            assert!(seen > 24 * 4, "yaw {yaw}: streaks still play in the margins ({seen})");
+            game.combat_act(flash_at(prey));
+            if game.combat.is_none() {
+                continue; // a one-shot kill ends the fight
+            }
+            assert_streaks_clear(game, beats::FLASH_CAPTION, yaw);
         }
     }
 

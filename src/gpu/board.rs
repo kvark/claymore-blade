@@ -2,6 +2,9 @@ use super::*;
 use crate::skel::{archive_joint_palette, identity_palette, joint_palette, pose_fighter, PoseInput};
 
 impl Renderer {
+    /// One hunt pass: the nest + board cells (`units == false`), or the
+    /// fighters (`units == true`). Fighters go in a second pass, after the
+    /// flat move / threat hex overlays, so those never wash over a body.
     pub(super) fn draw_board(
         &self,
         pass: &mut gpu::RenderCommandEncoder,
@@ -9,6 +12,7 @@ impl Renderer {
         game: &Game,
         w: f32,
         h: f32,
+        units: bool,
     ) {
         let size = board_size(combat.cols, combat.rows, w, h);
         let pan = Self::pan(game, w, h);
@@ -35,6 +39,10 @@ impl Renderer {
             },
         );
         rc.bind_vertex(0, self.prism.into());
+        if units {
+            self.draw_units(&mut rc, combat, game, size, yaw);
+            return;
+        }
         self.draw_nest(&mut rc, combat, size, yaw);
         // Dark ground under the prism grid so gaps / lavapipe void do not read as pure black.
         // One plinth per terrain cell, placed exactly like the tiles, so the ground
@@ -92,6 +100,17 @@ impl Renderer {
             );
             rc.draw(0, self.prism_count, 0, 1);
         }
+    }
+
+    fn draw_units(
+        &self,
+        rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>,
+        combat: &CombatState,
+        game: &Game,
+        size: f32,
+        yaw: u8,
+    ) {
+        let actor = current_unit(combat);
         let t = game.fx.time;
         let hurt = game.fx.hitstop > 0.0 || game.fx.flash > 0.0;
         for u in &combat.units {
@@ -102,11 +121,7 @@ impl Renderer {
             let (x, z) = axial_to_world_yaw(cell, size, yaw);
             let acting = actor.map(|a| a.id == u.id).unwrap_or(false);
             let (clip, clip_u) = game.fx.clip_of(&u.id);
-            let unit_size = if u.template_id == "raki" {
-                size * RAKI_SIZE
-            } else {
-                size
-            };
+            let unit_size = size * figure_size(&u.template_id);
             let glow = ((u.trans as f32) / 100.0).clamp(0.0, 1.0) * 0.55
                 + if acting { 0.25 } else { 0.0 };
             // Prefer archive GLB: Clare/fighters → vika, yoma/enemies → valefor.
@@ -201,10 +216,32 @@ impl Renderer {
     }
 }
 
-/// Raki stands at about this fraction of a Claymore (a boy next to Clare).
-pub(super) const RAKI_SIZE: f32 = 0.72;
+/// Raki stands at about this fraction of a hex (a boy next to Clare).
+/// 0.72 was lost under the yoma at default zoom; still well under Clare
+/// (`CLARE_SIZE`).
+pub(super) const RAKI_SIZE: f32 = 0.95;
+/// Clare is the lead: a larger figure than other Claymores so she reads
+/// first at default zoom (yaw 1, zoom ~1.48), yet stays inside her hex and
+/// under the Long Yoma.
+pub(super) const CLARE_SIZE: f32 = 1.35;
+/// Pale silver cloak rim: Clare is the brightest silhouette on the board.
+pub(super) const CLARE_RIM: [f32; 4] = [0.85, 0.90, 1.0, 1.6];
+/// Unlit lift on Clare's albedo, same as other Claymores: the rim does the
+/// brightening so her body keeps its shading instead of clipping to white.
+pub(super) const CLARE_GLOW: f32 = 0.12;
+/// Clare's cool steel albedo under the silver rim (lit, not flat white).
+pub(super) const CLARE_STEEL: [f32; 3] = [0.70, 0.73, 0.78];
+
+/// Per-template figure size as a fraction of the hex radius.
+pub(super) fn figure_size(template_id: &str) -> f32 {
+    match template_id {
+        "raki" => RAKI_SIZE,
+        "clare" => CLARE_SIZE,
+        _ => 1.0,
+    }
+}
 /// Raki's clothes: warm dark brown, nowhere near Claymore silver.
-pub(super) const RAKI_TINT: [f32; 3] = [0.26, 0.13, 0.05];
+pub(super) const RAKI_TINT: [f32; 3] = [0.38, 0.20, 0.08];
 /// Negative rim = ink outline on Raki's silhouette.
 pub(super) const KID_RIM: [f32; 4] = [1.0, 1.0, 1.0, -1.2];
 
@@ -222,10 +259,11 @@ pub(super) struct ArchiveBody {
 pub(super) fn archive_body(kind: ArchiveKind) -> ArchiveBody {
     match kind {
         ArchiveKind::Vika => ArchiveBody { width: 1.0, glow: 0.12, rim: NO_RIM },
+        ArchiveKind::Clare => ArchiveBody { width: 1.0, glow: CLARE_GLOW, rim: CLARE_RIM },
         // A kid's frame is stockier than an adult warrior's, and an ink outline
         // (negative rim) keeps the small dark figure from washing out under
         // the actor lamp next to Clare.
-        ArchiveKind::Kid => ArchiveBody { width: 1.3, glow: 0.05, rim: KID_RIM },
+        ArchiveKind::Kid => ArchiveBody { width: 1.3, glow: 0.10, rim: KID_RIM },
         ArchiveKind::Valefor => yoma_body(),
     }
 }
@@ -248,6 +286,7 @@ fn yoma_body() -> ArchiveBody {
 pub(super) fn archive_tint(kind: ArchiveKind, color: [f32; 3]) -> [f32; 3] {
     match kind {
         // Pale Clare tint reads as ink-on-ink; lift luminance a bit for vika.
+        ArchiveKind::Clare => CLARE_STEEL,
         ArchiveKind::Vika => [
             (color[0] * 1.12 + 0.06).min(1.0),
             (color[1] * 1.10 + 0.05).min(1.0),
@@ -267,7 +306,7 @@ const VALEFOR_SCALE_BASE: f32 = 0.9;
 
 pub(super) fn archive_scale_mul(kind: ArchiveKind) -> f32 {
     match kind {
-        ArchiveKind::Vika | ArchiveKind::Kid => VIKA_SCALE,
+        ArchiveKind::Vika | ArchiveKind::Clare | ArchiveKind::Kid => VIKA_SCALE,
         ArchiveKind::Valefor => VALEFOR_SCALE,
     }
 }
@@ -301,6 +340,8 @@ pub(crate) fn enemy_portrait_scale() -> f32 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ArchiveKind {
     Vika,
+    /// Clare: vika mesh, lead size (`CLARE_SIZE`) and a pale silver rim.
+    Clare,
     /// Raki: vika mesh, kid scale (see `RAKI_SIZE`) and his own tint.
     Kid,
     Valefor,
@@ -316,7 +357,8 @@ pub(super) fn archive_mesh_for<'a>(
         slot.map(|(buf, count)| (kind, buf, count))
     };
     match template_id {
-        "clare" | "miria" | "helen" | "deneve" => pick(ArchiveKind::Vika, r.vika),
+        "clare" => pick(ArchiveKind::Clare, r.vika),
+        "miria" | "helen" | "deneve" => pick(ArchiveKind::Vika, r.vika),
         "yoma" | "yoma_stretch" => pick(ArchiveKind::Valefor, r.valefor),
         // Raki: the same archive human at kid scale, in warm dark travel clothes.
         "raki" => pick(ArchiveKind::Kid, r.vika),
@@ -381,7 +423,8 @@ mod archive_look_tests {
         assert!(luma(raki) < luma(clare) * 0.35, "raki {raki:?} vs clare {clare:?}");
         // Same human mesh scale as Clare, at kid size.
         assert_eq!(archive_scale_mul(ArchiveKind::Kid), archive_scale_mul(ArchiveKind::Vika));
-        assert!(RAKI_SIZE > 0.6 && RAKI_SIZE < 0.8);
+        assert!(RAKI_SIZE > 0.85 && RAKI_SIZE < 1.0);
+        assert!(RAKI_SIZE < CLARE_SIZE * 0.75, "Raki stays a boy next to Clare");
         let kid = archive_body(ArchiveKind::Kid);
         assert!(kid.width >= 1.0 && kid.width <= 1.4);
         assert!(kid.rim[3] < 0.0, "ink outline");
@@ -412,6 +455,39 @@ mod archive_look_tests {
         ));
         assert_eq!(std::mem::size_of::<HuntLocal>(), 5 * 16 + 8 * 48);
         assert!(src.contains("lit += locals.rim.xyz * (locals.rim.w * edge * edge);"));
+    }
+}
+
+#[cfg(test)]
+mod clare_read_tests {
+    use super::*;
+
+    fn luma(c: [f32; 3]) -> f32 {
+        0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+    }
+
+    #[test]
+    fn clare_is_the_brightest_lead_figure() {
+        let clare = archive_body(ArchiveKind::Clare);
+        let yoma = archive_body(ArchiveKind::Valefor);
+        // Pale silver rim (cool, near-white), stronger than the yoma's blood rim.
+        assert!(clare.rim[3] > yoma.rim[3]);
+        assert!(clare.rim[2] >= clare.rim[1] && clare.rim[1] >= clare.rim[0] && clare.rim[0] > 0.7);
+        assert!(luma([clare.rim[0], clare.rim[1], clare.rim[2]]) * clare.rim[3]
+            > luma([yoma.rim[0], yoma.rim[1], yoma.rim[2]]) * yoma.rim[3] * 3.0);
+        assert!(clare.glow <= archive_body(ArchiveKind::Vika).glow, "rim, not a flat white lift");
+        let steel = archive_tint(ArchiveKind::Clare, [0.78, 0.80, 0.83]);
+        assert!(steel[2] > steel[0] && luma(steel) > 0.5, "cool pale steel {steel:?}");
+        // Larger than other Claymores and Raki, inside her hex (vika XZ ~0.72
+        // of its height), and still under the Long Yoma.
+        let h = |id: &str, kind| figure_size(id) * archive_scale_mul(kind) * unit_tier_scale(id, Side::Player);
+        let clare_h = h("clare", ArchiveKind::Clare);
+        assert!(clare_h > h("miria", ArchiveKind::Vika) * 1.15);
+        assert!(clare_h > h("raki", ArchiveKind::Kid) * 1.3);
+        // Vika's XZ extent is ~0.72 of a unit: half of it scaled stays inside the hex radius.
+        assert!(clare_h * 0.72 * 0.5 <= 0.75, "Clare's stance stays in her hex: {clare_h}");
+        assert!(clare_h < VALEFOR_SCALE * LONG_YOMA_TIER, "Long Yoma still looms");
+        assert_eq!(figure_size("yoma"), 1.0);
     }
 }
 
