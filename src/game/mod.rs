@@ -514,7 +514,30 @@ impl Game {
             let (a, t) = (push(prev), cut.takeover(self.fx.time));
             p = [a[0] + (p[0] - a[0]) * t, a[1] + (p[1] - a[1]) * t];
         }
+        // Keep the pushed board out from under the bottom-left unit card:
+        // lift it by however far its nearest cells would sink below the card top.
+        p[1] -= self.card_overlap_px(p, z1) * k;
         (p, z1)
+    }
+
+    /// Pixels the board's cells (top face plus plinth side) reach below the
+    /// unit card's top edge within the card's columns, for camera `(pan, zoom)`.
+    pub fn card_overlap_px(&self, pan: [f32; 2], zoom: f32) -> f32 {
+        let Some(combat) = self.combat.as_ref() else {
+            return 0.0;
+        };
+        let [w, h] = [self.ui.screen[0].max(1.0), self.ui.screen[1].max(1.0)];
+        let card = crate::gpu::unit_card(crate::hud::combat_bar().wait.y).plate;
+        let tile = crate::iso::board_size(combat.cols, combat.rows, w, h) * zoom;
+        let (rx, down) = (tile * 1.05 / w, tile * 0.75 / h);
+        combat
+            .terrain
+            .iter()
+            .map(|(hex, _)| {
+                let c = crate::iso::hex_to_screen(*hex, w, h, combat.cols, combat.rows, pan, zoom, 0.0, self.ui.yaw);
+                if c[0] - rx < card[0] + card[2] && c[0] + rx > card[0] { (c[1] + down - card[1]) * h } else { 0.0 }
+            })
+            .fold(0.0, f32::max)
     }
 
     pub fn clamped_combat_zoom(&self, zoom: f32) -> f32 {

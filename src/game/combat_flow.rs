@@ -1136,6 +1136,41 @@ mod tests {
     }
 
     #[test]
+    fn cutin_push_keeps_the_board_off_the_unit_card() {
+        let mut lifted = 0;
+        for (w, h) in [(1280.0, 800.0), (1920.0, 1080.0), (1024.0, 768.0)] {
+            let mut game = Game::new();
+            game.mode = Mode::Combat;
+            game.ui.screen = [w, h];
+            game.combat = Some(create_battle(
+                catalog::encounter("paburo-nest").unwrap(),
+                &["clare".into(), "raki".into()],
+                7,
+            ));
+            game.frame_combat_view();
+            let ids: Vec<(String, Side)> =
+                game.combat.as_ref().unwrap().units.iter().map(|u| (u.id.clone(), u.side)).collect();
+            for (id, side) in ids {
+                let kind = if side == Side::Player { beats::CutInKind::Flash } else { beats::CutInKind::Claw };
+                game.cutin = Some(CutIn { unit_id: id.clone(), start: -10.0, strike_at: 10.0, kind, handoff: None });
+                game.fx.time = 0.0;
+                let (pan, zoom) = game.view_camera();
+                assert!(game.card_overlap_px(pan, zoom) < 0.5, "{id} at {w}x{h}: board under the card");
+                if (pan[1] - game.ui.pan[1]).abs() > 1e-3 && game.card_overlap_px(game.ui.pan, zoom) > 0.5 {
+                    lifted += 1;
+                }
+                let u = game.combat.as_ref().unwrap().units.iter().find(|u| u.id == id).unwrap().origin;
+                let p = game.hex_screen(u);
+                assert!(p[0] > 0.03 && p[0] < 0.97 && p[1] > 0.1 && p[1] < 0.86, "{id} pushed off screen {p:?}");
+            }
+            // At rest nothing moves.
+            game.cutin = None;
+            assert_eq!(game.view_camera(), (game.ui.pan, game.ui.zoom));
+        }
+        assert!(lifted > 0, "some push used to sink the board under the card");
+    }
+
+    #[test]
     fn flash_streaks_stay_off_the_board_units_and_caption() {
         for (yaw, max_zoom) in [(0u8, false), (1, false), (2, true), (3, true)] {
             let (mut game, prey) = clare_ready_to_flash(50);
