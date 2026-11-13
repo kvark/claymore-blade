@@ -207,6 +207,7 @@ mod chrome;
 mod title_intro;
 mod world_town;
 mod combat_ui;
+pub(crate) use combat_ui::unit_card;
 #[cfg(test)]
 pub(crate) use combat_ui::queue_ids;
 mod panels;
