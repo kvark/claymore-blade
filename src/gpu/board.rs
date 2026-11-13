@@ -24,7 +24,7 @@ impl Renderer {
             &HuntFrame {
                 globals: HuntGlobals {
                     origin_zoom: [ox, oy, zoom, 0.0],
-                    screen: [w, h, 0.0, 0.0],
+                    screen: [w, h, game.fx.time, 0.0],
                     depth_origin_scale: board_depth_origin_scale(combat.cols, combat.rows, size, yaw),
                     light_dir: [lx, 0.72, lz, 0.0],
                     lamp0,
@@ -35,6 +35,7 @@ impl Renderer {
             },
         );
         rc.bind_vertex(0, self.prism.into());
+        self.draw_nest(&mut rc, combat, size, yaw);
         // Dark ground under the prism grid so gaps / lavapipe void do not read as pure black.
         // One plinth per terrain cell, placed exactly like the tiles, so the ground
         // follows the board's footprint at every yaw instead of a separately sized plate.
@@ -45,9 +46,10 @@ impl Renderer {
                 &HuntDraw {
                     locals: HuntLocal {
                         world: board_ground_world(*hex, size, yaw),
-                        color: [0.07, 0.06, 0.05, board_ground_height(size)],
+                        color: [0.05, 0.045, 0.04, board_ground_height(size)],
                         pose: [px, py, pz, 0.04],
                         rim: NO_RIM,
+                        mat: nest::material(nest::MAT_ROCK, size, combat, 0.0),
                         joints: identity_palette(),
                     },
                 },
@@ -62,17 +64,17 @@ impl Renderer {
             let mut color = terrain_tint(*terrain);
             if preview.iter().any(|h| h.q == hex.q && h.r == hex.r) {
                 color = if skill_on {
-                    [0.42, 0.14, 0.12]
+                    [0.26, 0.10, 0.09]
                 } else {
-                    [0.28, 0.34, 0.18]
+                    [0.18, 0.22, 0.13]
                 };
             }
             // Enemy claw tell — blood/danger, not gold (overrides move tint).
             if threat.iter().any(|h| h.q == hex.q && h.r == hex.r) {
-                color = [0.50, 0.10, 0.12];
+                color = [0.36, 0.07, 0.09];
             }
             if game.ui.hover == Some(*hex) {
-                color = [0.52, 0.48, 0.40]; // dust/ash, not gold
+                color = [0.34, 0.32, 0.28]; // dust/ash, not gold
             }
             rc.bind(
                 1,
@@ -81,8 +83,9 @@ impl Renderer {
                         world: board_tile_world(*hex, size, yaw),
                         color: [color[0], color[1], color[2], height.max(0.04)],
                         // Unlit albedo lift so terrain hue survives Lavapipe + actor lamps.
-                        pose: [px, py, pz, 0.14],
+                        pose: [px, py, pz, 0.07],
                         rim: NO_RIM,
+                        mat: nest::terrain_material(*terrain, size, combat),
                         joints: identity_palette(),
                     },
                 },
@@ -153,6 +156,7 @@ impl Renderer {
                             color: [cr, cg, cb, scale],
                             pose: [face.cos(), face.sin(), 0.0, mesh_glow],
                             rim: body.rim,
+                            mat: [0.0; 4],
                             joints: archive_joint_palette(&pose_in),
                         },
                     },
@@ -185,6 +189,7 @@ impl Renderer {
                             color: [u.color[0], u.color[1], u.color[2], 1.0],
                             pose: [1.0, 0.0, 0.0, glow],
                             rim: NO_RIM,
+                        mat: [0.0; 4],
                             joints: joint_palette(&bones),
                         },
                     },
@@ -332,10 +337,10 @@ pub(super) fn unit_has_archive_mesh(r: &Renderer, template_id: &str, side: Side)
 /// at a glance while staying in DESIGN.md Ink / Ash / Steel / Blood — no gold/purple.
 pub(super) fn terrain_tint(terrain: Terrain) -> [f32; 3] {
     match terrain {
-        Terrain::Water => [0.03, 0.08, 0.22], // darker, bluer
-        Terrain::Mud => [0.42, 0.16, 0.06],   // browner earth
-        Terrain::Ruin => [0.42, 0.41, 0.44],  // cooler steel grey
-        Terrain::Grass => [0.08, 0.34, 0.07], // greener moss
+        Terrain::Water => [0.015, 0.04, 0.085], // darker, bluer
+        Terrain::Mud => [0.16, 0.085, 0.045],   // browner earth
+        Terrain::Ruin => [0.22, 0.21, 0.23],  // cooler steel grey
+        Terrain::Grass => [0.06, 0.12, 0.04], // greener moss
     }
 }
 
@@ -403,9 +408,9 @@ mod archive_look_tests {
             .collect::<Vec<_>>()
             .join(" ");
         assert!(src.contains(
-            "world: vec4<f32>, color: vec4<f32>, pose: vec4<f32>, rim: vec4<f32>, joints: array<mat3x4<f32>, 8>,"
+            "world: vec4<f32>, color: vec4<f32>, pose: vec4<f32>, rim: vec4<f32>, mat: vec4<f32>, joints: array<mat3x4<f32>, 8>,"
         ));
-        assert_eq!(std::mem::size_of::<HuntLocal>(), 4 * 16 + 8 * 48);
+        assert_eq!(std::mem::size_of::<HuntLocal>(), 5 * 16 + 8 * 48);
         assert!(src.contains("lit += locals.rim.xyz * (locals.rim.w * edge * edge);"));
     }
 }
@@ -449,7 +454,9 @@ mod terrain_tint_tests {
         let m = terrain_tint(Terrain::Mud);
         let r = terrain_tint(Terrain::Ruin);
         let g = terrain_tint(Terrain::Grass);
-        // Pairwise RGB distance must clear Lavapipe wash-out (~0.08 was indistinguishable).
+        // Pairwise RGB distance must clear Lavapipe wash-out (~0.08 was
+        // indistinguishable). The shader's moss / mud / stone / water textures
+        // separate kinds further, so base hues stay earthy, not candy.
         for (a, b, label) in [
             (w, m, "water-mud"),
             (w, r, "water-ruin"),
@@ -458,7 +465,12 @@ mod terrain_tint_tests {
             (m, g, "mud-grass"),
             (r, g, "ruin-grass"),
         ] {
-            assert!(dist(a, b) >= 0.22, "{label} too close: {}", dist(a, b));
+            assert!(dist(a, b) >= 0.09, "{label} too close: {}", dist(a, b));
+        }
+        for c in [w, m, r, g] {
+            let spread = c.iter().cloned().fold(0.0, f32::max) - c.iter().cloned().fold(1.0, f32::min);
+            assert!(spread <= 0.15, "candy-saturated base {c:?}");
+            assert!(c.iter().all(|v| *v <= 0.3), "too bright for a dim nest {c:?}");
         }
         assert!(g[1] > g[0] && g[1] > g[2], "grass should be greener");
         assert!(m[0] > m[1] && m[0] > m[2], "mud should be browner (red-led)");
@@ -477,12 +489,12 @@ fn combat_lamps(
 ) -> ([f32; 4], [f32; 4], [f32; 4], [f32; 4]) {
     let place = |hex: crate::hex::Axial, y: f32| {
         let (x, z) = axial_to_world_yaw(hex, size, yaw);
-        [x, y, z, 1.35]
+        [x, y, z, 0.42]
     };
     let (lamp0, lamp0c) = if let Some(u) = actor {
         let p = place(core_hex(u), size * 0.55);
         // Ash/Steel lift — gold washed terrain types together on Lavapipe.
-        let ash = [0.82, 0.78, 0.68, size * 2.2];
+        let ash = [0.62, 0.68, 0.72, size * 2.2];
         (p, ash)
     } else {
         ([0.0, size, 0.0, 0.0], [0.0, 0.0, 0.0, size])
@@ -497,7 +509,7 @@ fn combat_lamps(
         (p, tint)
     } else if let Some(e) = combat.units.iter().find(|u| !u.dead && u.side == Side::Enemy) {
         let p = place(core_hex(e), size * 0.5);
-        ([p[0], p[1], p[2], 0.85 + e.trans as f32 * 0.006], [0.85, 0.18, 0.14, size * 2.8])
+        ([p[0], p[1], p[2], 0.30 + e.trans as f32 * 0.003], [0.85, 0.18, 0.14, size * 2.8])
     } else {
         ([0.0, size, 0.0, 0.0], [0.0, 0.0, 0.0, size])
     };

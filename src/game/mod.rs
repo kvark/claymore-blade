@@ -106,6 +106,25 @@ pub fn clamp_board_zoom(zoom: f32, cols: i32, rows: i32, w: f32, h: f32, yaw: u8
     zoom.clamp(COMBAT_ZOOM_MIN, cap)
 }
 
+/// Share of the HUD-fit zoom cap the default combat view fills; the rest is
+/// headroom for the claw cut-in push-in.
+pub const COMBAT_FRAME_FILL: f32 = 0.95;
+
+/// Default combat camera `(yaw, zoom)` for a board on this screen: the 90°
+/// yaw with the most HUD-fit headroom (landscape: yaw 1, the board's long
+/// axis across the screen; portrait: yaw 0), filled to `COMBAT_FRAME_FILL`.
+pub fn default_combat_view(cols: i32, rows: i32, w: f32, h: f32) -> (u8, f32) {
+    let mut best = (0u8, 0.0_f32);
+    for yaw in [1u8, 0, 3, 2] {
+        let cap = crate::iso::board_zoom_max(cols, rows, w, h, yaw).min(COMBAT_ZOOM_MAX);
+        if cap > best.1 + 1e-3 {
+            best = (yaw, cap);
+        }
+    }
+    let (yaw, cap) = best;
+    (yaw, (cap * COMBAT_FRAME_FILL).max(1.05_f32.min(cap)).max(COMBAT_ZOOM_MIN))
+}
+
 /// Island walk speed in normalized map units per second (~8–15s Doga→Pieta).
 pub const WORLD_WALK_SPEED: f32 = 0.055;
 /// World-hour advance per real second while walking.
@@ -263,6 +282,7 @@ impl Game {
         if self.mode == Mode::World {
             self.result_win = None;
         }
+        self.frame_combat_view();
         audio::confirm();
     }
 
@@ -399,6 +419,17 @@ impl Game {
         dialog::TITLE_FLAVOR[i]
     }
 
+    /// Reset pan and pick the default yaw / zoom for the loaded board.
+    pub fn frame_combat_view(&mut self) {
+        if let Some(c) = self.combat.as_ref() {
+            let [w, h] = self.ui.screen;
+            let (yaw, zoom) = default_combat_view(c.cols, c.rows, w.max(1.0), h.max(1.0));
+            self.ui.pan = [0.0, 0.0];
+            self.ui.yaw = yaw;
+            self.ui.zoom = zoom;
+        }
+    }
+
     /// Keep combat zoom inside the HUD gap for the current board, yaw, and screen.
     pub fn clamp_ui_zoom(&mut self) {
         self.ui.zoom = self.clamped_combat_zoom(self.ui.zoom);
@@ -508,6 +539,27 @@ mod tests {
         assert!(cap + 1e-3 >= 1.05);
         assert!(cap < COMBAT_ZOOM_MAX);
         assert!((clamp_board_zoom(1.05, 11, 8, 1280.0, 800.0, 3) - 1.05).abs() < 1e-6);
+    }
+
+    #[test]
+    fn default_combat_view_fills_the_frame_inside_the_hud_cap() {
+        for e in catalog::ENCOUNTERS.iter() {
+            for (w, h) in [(1280.0, 800.0), (1920.0, 1080.0), (1024.0, 768.0), (390.0, 844.0)] {
+                let (yaw, zoom) = default_combat_view(e.cols, e.rows, w, h);
+                let cap = crate::iso::board_zoom_max(e.cols, e.rows, w, h, yaw).min(COMBAT_ZOOM_MAX);
+                assert!(zoom <= cap + 1e-4, "{} {w}x{h}: {zoom} > cap {cap}", e.id);
+                assert!(zoom >= 1.05_f32.min(cap) - 1e-4, "never tighter-than-old default");
+                if w > h {
+                    // Landscape: the long board axis across the screen, figures ~1.4x.
+                    assert_eq!(yaw, 1, "{} {w}x{h}", e.id);
+                    assert!(zoom >= 1.25, "{} {w}x{h}: {zoom}", e.id);
+                } else {
+                    assert_eq!(yaw, 0, "portrait keeps the tall yaw");
+                }
+                // Room left for the claw cut-in push-in.
+                assert!(zoom < cap || cap <= 1.06 + 1e-3);
+            }
+        }
     }
     use crate::catalog;
 

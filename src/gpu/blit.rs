@@ -110,28 +110,6 @@ impl Renderer {
         self.text_tint(rc, label, tx, ty, glyph_h, ink);
     }
 
-    pub(super) fn bar(
-        &self,
-        rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>,
-        x: f32,
-        y: f32,
-        w: f32,
-        h: f32,
-        fill: f32,
-        tint: [f32; 4],
-    ) {
-        self.blit_px(rc, self.tex("kenney/ui/bar.png"), [x, y, w, h], [0.22, 0.18, 0.14, 0.95]);
-        let f = fill.clamp(0.0, 1.0);
-        if f > 0.01 {
-            self.blit_px(
-                rc,
-                self.tex("kenney/ui/bar-fill.png"),
-                [x + w * 0.02, y + h * 0.15, w * 0.96 * f, h * 0.7],
-                tint,
-            );
-        }
-    }
-
     pub(super) fn prompt(&self, rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>, rel: &str, x: f32, y: f32, s: f32) {
         self.prompt_state(rc, rel, x, y, s, true);
     }

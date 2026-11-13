@@ -154,9 +154,9 @@ impl Game {
         audio::music_hunt();
         self.ui = Ui {
             screen: self.ui.screen,
-            zoom: 1.0,
             ..Ui::default()
         };
+        self.frame_combat_view();
         self.fx = crate::fx::Fx::default();
         self.reset_enemy_pacing();
         self.persist();
