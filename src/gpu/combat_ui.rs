@@ -21,7 +21,6 @@ impl Renderer {
         let yaw = game.ui.yaw;
         let (ox, oy) = camera_origin(combat.cols, combat.rows, size, w, h, pan, zoom, yaw);
         let preview = game.preview_zone();
-        let threat = game.threat_zone();
         let skill_on = game.ui.selected_skill.is_some();
         let overlay = if skill_on {
             "kenney/ui/hex-hit.png"
@@ -47,21 +46,34 @@ impl Renderer {
                 otint,
             );
         }
-        // Yoma claw tell — same hex language as skill preview, blood/danger tint.
-        let ttint = [0.78, 0.12, 0.14, 0.78];
-        for hex in &threat {
-            let (wx, wz) = axial_to_world_yaw(*hex, size, yaw);
-            let (sx, sy) = world_to_iso(wx, size * 0.16, wz);
-            let px = (ox + sx * zoom) / w;
-            let py = (oy + sy * zoom) / h;
-            let hw = (size * zoom / w) * 1.2;
-            let hh = (size * zoom / h) * 0.7;
-            self.blit_px(
-                &mut rc,
-                self.tex("kenney/ui/hex-hit.png"),
-                [px - hw * 0.5, py - hh * 0.45, hw, hh],
-                ttint,
-            );
+        // Distinct silhouettes: a broken rim + chevron forecasts the next
+        // strike, while a solid rim + three scratches marks a committed claw.
+        // Draw after the player preview so hovering never obscures this warning.
+        if let Some((committed, threat)) = game.threat_overlay() {
+            let texture = if committed {
+                "art/tactics/strike.png"
+            } else {
+                "art/tactics/forecast.png"
+            };
+            for hex in threat {
+                let (wx, wz) = axial_to_world_yaw(hex, size, yaw);
+                let ground = combat
+                    .terrain
+                    .iter()
+                    .find(|(cell, _)| *cell == hex)
+                    .map_or(0.04, |(_, terrain)| terrain_height(*terrain, size).max(0.04));
+                let (sx, sy) = world_to_iso(wx, ground, wz);
+                let px = (ox + sx * zoom) / w;
+                let py = (oy + sy * zoom) / h;
+                let hw = size * zoom / w * 1.44;
+                let hh = size * zoom / h * 0.84;
+                self.blit_px(
+                    &mut rc,
+                    self.tex(texture),
+                    [px - hw * 0.5, py - hh * 0.5, hw, hh],
+                    [1.0; 4],
+                );
+            }
         }
     }
 

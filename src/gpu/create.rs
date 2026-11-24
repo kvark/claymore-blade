@@ -138,7 +138,12 @@ impl Renderer {
         let (depth, depth_view) = make_depth(context, screen);
 
         let mut images = HashMap::new();
-        let mut paths: Vec<&str> = vec!["art/title.jpg", "art/world-map.jpg"];
+        let mut paths: Vec<&str> = vec![
+            "art/title.jpg",
+            "art/world-map.jpg",
+            "art/tactics/forecast.png",
+            "art/tactics/strike.png",
+        ];
         for u in WARRIORS.iter().chain(ENEMIES.iter()) {
             paths.push(u.portrait);
             paths.push(u.sprite);

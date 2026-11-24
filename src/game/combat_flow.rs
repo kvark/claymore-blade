@@ -176,35 +176,32 @@ impl Game {
         }
     }
 
-    /// Blood-tint hexes the next yoma will claw (pending windup or player-turn peek).
-    pub fn threat_zone(&self) -> Vec<Axial> {
-        let Some(combat) = self.combat.as_ref() else {
-            return vec![];
-        };
-        let strike = if let Some(tell) = self.enemy_tell.as_ref() {
-            Some(IntendedStrike {
-                unit_id: tell.unit_id.clone(),
-                skill_id: tell.skill_id.clone(),
-                hex: tell.hex,
-            })
-        } else if current_unit(combat)
-            .map(|u| u.side == Side::Player)
-            .unwrap_or(false)
-        {
-            peek_enemy_tell(combat)
+    /// Danger cells and whether the strike has committed to its exact aim.
+    /// A live prediction persists across the enemy beat handoff.
+    pub fn threat_overlay(&self) -> Option<(bool, Vec<Axial>)> {
+        let combat = self.combat.as_ref()?;
+        if self.mode != Mode::Combat || combat.over.is_some() {
+            return None;
+        }
+        let (strike, committed) = if let Some(tell) = self.enemy_tell.as_ref() {
+            let actor = current_unit(combat)?;
+            if actor.side != Side::Enemy || actor.id != tell.unit_id {
+                return None;
+            }
+            (
+                IntendedStrike {
+                    unit_id: tell.unit_id.clone(),
+                    skill_id: tell.skill_id.clone(),
+                    hex: tell.hex,
+                },
+                true,
+            )
         } else {
-            None
+            (peek_enemy_tell(combat)?, false)
         };
-        let Some(strike) = strike else {
-            return vec![];
-        };
-        let Some(u) = combat.units.iter().find(|u| u.id == strike.unit_id) else {
-            return vec![];
-        };
-        let Some(skill) = catalog::skill(&strike.skill_id) else {
-            return vec![];
-        };
-        zone_for(combat, u, skill, strike.hex)
+        let actor = combat.units.iter().find(|u| u.id == strike.unit_id && !u.dead)?;
+        let skill = catalog::skill(&strike.skill_id)?;
+        Some((committed, zone_for(combat, actor, skill, strike.hex)))
     }
 
     /// FLASH (Quicksword) cut-in: presentational only. The strike already
@@ -742,6 +739,39 @@ mod tests {
     fn resolve_pending(game: &mut Game) {
         game.fx.time = game.enemy_tell.as_ref().unwrap().resolve_at;
         game.tick_enemy_tell();
+    }
+
+    #[test]
+    fn threat_ink_persists_from_player_turn_into_windup() {
+        let mut game = adjacent_yoma(false);
+        let forecast = (false, vec![Axial::new(3, 3)]);
+        assert_eq!(game.threat_overlay(), Some(forecast.clone()));
+        game.combat_act(PlayerAction::Wait);
+        assert!(game.enemy_tell.is_none());
+        assert_eq!(game.threat_overlay(), Some(forecast.clone()));
+        fire_beat(&mut game);
+        assert_eq!(game.threat_overlay(), Some((true, forecast.1)));
+        game.combat.as_mut().unwrap().over = Some(false);
+        assert!(game.threat_overlay().is_none());
+    }
+
+    #[test]
+    fn moving_out_of_reach_clears_the_forecast() {
+        let mut game = adjacent_yoma(false);
+        let retreat = Axial::new(2, 3);
+        assert!(game.threat_overlay().is_some());
+        game.combat_act(PlayerAction::Move(retreat));
+        let combat = game.combat.as_ref().unwrap();
+        let clare = combat.units.iter().find(|unit| unit.id == "clare").unwrap();
+        assert_eq!(core_hex(clare), retreat);
+        assert!(game.threat_overlay().is_none());
+    }
+
+    #[test]
+    fn stale_windup_is_never_marked_committed() {
+        let mut game = waiting_for_yoma(false);
+        game.enemy_tell.as_mut().unwrap().unit_id = "old-attacker".into();
+        assert!(game.threat_overlay().is_none());
     }
 
     #[test]
