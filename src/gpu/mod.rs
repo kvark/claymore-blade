@@ -159,6 +159,8 @@ struct FlatLocal {
     pos_size: [f32; 4],
     uv_rect: [f32; 4],
     tint: [f32; 4],
+    /// C2 screentone (pitch px, strength, edge band, aspect); zero = plain.
+    tone: [f32; 4],
 }
 
 #[derive(blade_macros::ShaderData)]

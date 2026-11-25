@@ -216,7 +216,7 @@ pub fn speed_lines(
         let h = hash(i as u32);
         let h2 = hash(i as u32 ^ 0x9e37);
         let y = 0.12 + 0.74 * h;
-        let len = 0.10 + 0.26 * h2;
+        let len = 0.16 + 0.34 * h2;
         let speed = 2.2 + 1.6 * hash(i as u32 ^ 0x51ed);
         // Streaks rush toward the focus: left half moves right, right half moves left.
         let dir = if i % 2 == 0 { 1.0 } else { -1.0 };
@@ -226,7 +226,7 @@ pub fn speed_lines(
         } else {
             1.0 - phase * (1.0 + len)
         };
-        let thick = (1.4 + 2.4 * h2) * px * aspect.max(0.5).min(2.0);
+        let thick = (1.8 + 3.0 * h2) * px * aspect.max(0.5).min(2.0);
         let (y0, y1) = (y - thick * 0.5, y + thick * 0.5);
         // Free span on this row, from the streak's own screen edge to the
         // nearest blocker it would run into.
@@ -250,10 +250,92 @@ pub fn speed_lines(
         let mid = (l + r) * 0.5;
         let far = ((mid - focus[0]).abs() / 0.35).min(1.0);
         let alpha = strength * (0.30 + 0.35 * hash(i as u32 ^ 0x77)) * (0.35 + 0.65 * far);
-        out.push([l, y0, r - l, thick, alpha]);
+        out.extend(taper([l, y0, r - l, thick, alpha], dir > 0.0, px));
     }
     out
 }
+
+/// Thickness steps of a tapered streak, from its screen-edge origin toward
+/// the focus, as (fraction of length, fraction of thickness).
+const TAPER: [(f32, f32); 4] = [(0.38, 1.0), (0.26, 0.68), (0.20, 0.42), (0.16, 0.22)];
+
+/// Manga taper: split one streak `[x, y, w, h, a]` into stacked segments,
+/// full weight at its origin end (left when `from_left`) and thinning to a
+/// hairline toward the focus, all centred on the streak's row and inside its
+/// clipped span. `min_h` keeps the hairline at least one pixel.
+pub fn taper(l: [f32; 5], from_left: bool, min_h: f32) -> [[f32; 5]; 4] {
+    let cy = l[1] + l[3] * 0.5;
+    let mut at = 0.0;
+    TAPER.map(|(len, thick)| {
+        let seg = l[2] * len;
+        let x = if from_left { l[0] + at } else { (l[0] + l[2] - at - seg).max(l[0]) };
+        at += seg;
+        let h = (l[3] * thick).max(min_h.min(l[3]));
+        [x, cy - h * 0.5, seg, h, l[4]]
+    })
+}
+
+/// Screen-pixel dot pitch of the cut-in screentone: a fixed print grid that
+/// grows a little with resolution (~5.3 px at 800, ~7.2 px at 1080).
+pub fn tone_pitch(h_px: f32) -> f32 {
+    (h_px / 150.0).max(4.0)
+}
+
+/// Cut-in screentone as `(rgba, tone)` for the flat shader: ink-black dots
+/// (blood-black for the claw, cooler and lighter on FLASH's pale glare) in
+/// a band about `TONE_BAND` rect-heights deep along the rim of `[0, 0, 1, panel_top]`.
+/// `tone` = (pitch px, peak coverage, band, rect aspect). None when idle.
+pub fn cutin_tone(kind: CutInKind, strength: f32, w: f32, h: f32, panel_top: f32) -> Option<([f32; 4], [f32; 4])> {
+    let k = strength.clamp(0.0, 1.0);
+    if k <= 0.01 {
+        return None;
+    }
+    let aspect = w / (h * panel_top).max(1.0);
+    // The claw rim is already near-black, so its tone band reaches further
+    // in, where the dots land on the red tint and read.
+    let (rgba, cover, band) = match kind {
+        CutInKind::Claw => ([0.02, 0.0, 0.004, 0.95 * k], 0.6, CLAW_TONE_BAND),
+        CutInKind::Flash => ([0.03, 0.03, 0.035, 0.55 * k], 0.42, TONE_BAND),
+    };
+    Some((rgba, [tone_pitch(h), cover * k, band, aspect]))
+}
+
+/// Rows the screentone quad is sliced into so it can skip the board.
+pub const TONE_ROWS: usize = 64;
+
+/// Screentone pieces as `(screen rect, uv rect)` over `[0, 0, 1, panel_top]`:
+/// the rect cut into `TONE_ROWS` rows, each minus the keep-out rects on that
+/// row (board cells, units, caption), with uvs of the full rect so the dot
+/// coverage stays continuous across pieces. Dots never land on the board.
+pub fn tone_pieces(keep_out: &[Rect], panel_top: f32) -> Vec<(Rect, Rect)> {
+    let mut out = Vec::new();
+    let row = panel_top / TONE_ROWS as f32;
+    for i in 0..TONE_ROWS {
+        let (y0, y1) = (row * i as f32, row * (i + 1) as f32);
+        let mut blocked: Vec<(f32, f32)> = keep_out
+            .iter()
+            .filter(|r| overlaps_y(r, y0, y1))
+            .map(|r| (r[0].max(0.0), (r[0] + r[2]).min(1.0)))
+            .filter(|(a, b)| b > a)
+            .collect();
+        blocked.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut x = 0.0_f32;
+        for (a, b) in blocked.into_iter().chain(std::iter::once((1.0, 1.0))) {
+            if a > x {
+                let uv = [x, y0 / panel_top, a - x, row / panel_top];
+                out.push(([x, y0, a - x, row], uv));
+            }
+            x = x.max(b);
+        }
+    }
+    out
+}
+
+/// Depth of the screentone band (fraction of the cut-in rect height).
+pub const TONE_BAND: f32 = 0.30;
+/// Claw tone band: a little deeper than FLASH's so dots reach the red tint,
+/// but shallow enough that none land on the board.
+pub const CLAW_TONE_BAND: f32 = 0.35;
 
 /// Keep-out rects for the cut-in streaks: one per board cell (its projected
 /// top face, padded) plus a taller box over every standing unit, all in
@@ -464,6 +546,65 @@ mod tests {
         let weak = speed_lines(0.3, 0.2, focus, 1.6, &[]);
         let strong = speed_lines(1.0, 0.2, focus, 1.6, &[]);
         assert!(weak.iter().zip(&strong).all(|(a, b)| a[4] < b[4]));
+    }
+
+    #[test]
+    fn speed_lines_taper_from_the_screen_edge_to_a_hairline() {
+        let l = [0.1, 0.5, 0.4, 0.008, 0.6];
+        for from_left in [true, false] {
+            let s = taper(l, from_left, 0.001);
+            let span: f32 = s.iter().map(|x| x[2]).sum();
+            assert!((span - l[2]).abs() < 1e-5);
+            for x in &s {
+                assert!(x[0] >= l[0] - 1e-6 && x[0] + x[2] <= l[0] + l[2] + 1e-6);
+                assert!((x[1] + x[3] * 0.5 - 0.504).abs() < 1e-6, "off the row");
+                assert!(x[3] <= l[3] + 1e-7 && x[3] >= 0.001 - 1e-7);
+            }
+            // Thick at the origin edge, thinning toward the focus.
+            assert!(s.windows(2).all(|p| p[0][3] > p[1][3]));
+            let origin = if from_left { s[0][0] } else { s[0][0] + s[0][2] };
+            assert!((origin - if from_left { l[0] } else { l[0] + l[2] }).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn cutin_tone_is_print_dots_only_while_a_cut_in_plays() {
+        assert!(cutin_tone(CutInKind::Claw, 0.0, 1280.0, 800.0, 0.85).is_none());
+        let (claw, ct) = cutin_tone(CutInKind::Claw, 1.0, 1280.0, 800.0, 0.85).unwrap();
+        let (flash, ft) = cutin_tone(CutInKind::Flash, 1.0, 1280.0, 800.0, 0.85).unwrap();
+        // Ink-black dots, never tinted like the wash.
+        assert!(claw[..3].iter().chain(&flash[..3]).all(|c| *c < 0.05));
+        assert!(flash[3] < claw[3] && ft[1] < ct[1]);
+        // Dots never merge into a solid fill (r = 0.56 * sqrt(cover) < 0.5).
+        assert!(0.56 * ct[1].sqrt() < 0.5);
+        assert!((ct[3] - 1280.0 / 680.0).abs() < 1e-4);
+        assert_eq!((ct[2], ft[2]), (CLAW_TONE_BAND, TONE_BAND));
+        // Pitch is whole-screen pixels, at least 4 px, growing with resolution.
+        assert_eq!(tone_pitch(600.0), 4.0);
+        assert!(tone_pitch(800.0) > 5.0 && tone_pitch(1080.0) > tone_pitch(800.0));
+        let (_, half) = cutin_tone(CutInKind::Claw, 0.5, 1280.0, 800.0, 0.85).unwrap();
+        assert!(half[1] < ct[1]);
+    }
+
+    #[test]
+    fn tone_pieces_tile_the_rim_and_skip_the_board() {
+        let board = [0.30, 0.20, 0.42, 0.60];
+        let caption = [0.45, 0.10, 0.10, 0.04];
+        let pieces = tone_pieces(&[board, caption], 0.85);
+        let mut area = 0.0;
+        for (r, uv) in &pieces {
+            assert!(!intersects(&[r[0], r[1], r[2], r[3], 1.0], &board), "tone on the board {r:?}");
+            assert!(!intersects(&[r[0], r[1], r[2], r[3], 1.0], &caption));
+            // uv is the piece's place in the full rect, so coverage is seamless.
+            assert!((uv[0] - r[0]).abs() < 1e-6 && (uv[1] * 0.85 - r[1]).abs() < 1e-5);
+            assert!((uv[2] - r[2]).abs() < 1e-6 && (uv[3] * 0.85 - r[3]).abs() < 1e-5);
+            area += r[2] * r[3];
+        }
+        // Everything off the blockers is still covered (rows snap to 1/64).
+        let row = 0.85 / TONE_ROWS as f32;
+        let free = 0.85 - 0.42 * 0.60 - 0.10 * 0.04;
+        assert!(area <= free + 1e-4 && area > free - 0.42 * 2.0 * row - 0.1 * 2.0 * row);
+        assert_eq!(tone_pieces(&[], 0.85).len(), TONE_ROWS);
     }
 
     fn intersects(l: &[f32; 5], r: &Rect) -> bool {
