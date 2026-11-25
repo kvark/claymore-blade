@@ -295,7 +295,8 @@ pub fn cutin_tone(kind: CutInKind, strength: f32, w: f32, h: f32, panel_top: f32
     // in, where the dots land on the red tint and read.
     let (rgba, cover, band) = match kind {
         CutInKind::Claw => ([0.02, 0.0, 0.004, 0.95 * k], 0.6, CLAW_TONE_BAND),
-        CutInKind::Flash => ([0.03, 0.03, 0.035, 0.55 * k], 0.42, TONE_BAND),
+        // Sparse silver dots on the steel-ink rim (dark dots vanished there).
+        CutInKind::Flash => ([0.30, 0.32, 0.36, 0.4 * k], 0.22, TONE_BAND),
     };
     Some((rgba, [tone_pitch(h), cover * k, band, aspect]))
 }
@@ -409,34 +410,44 @@ pub fn wash_edge_alpha(strength: f32) -> f32 {
     1.0 - (1.0 - a).powi(WASH_RINGS as i32)
 }
 
-/// FLASH wash as `(rect, rgba)` quads: a pale yoki lift over everything, a
-/// gold-white glare thickening toward the edges (bottom bands end at the
-/// action panel `panel_top`) and the same ink letterbox bar as the claw.
+/// FLASH wash as `(rect, rgba)` quads, silver ink (C2) rather than fog: a
+/// cold steel shade over everything, a steel-ink vignette thickening toward
+/// the edges (bottom bands end at the action panel `panel_top`), the same ink
+/// letterbox bar as the claw, and a crisp silver keyline under the bar.
 pub fn flash_wash(strength: f32, panel_top: f32) -> Vec<(Rect, [f32; 4])> {
     let k = strength.clamp(0.0, 1.0);
     let mut out = Vec::new();
     if k <= 0.01 {
         return out;
     }
-    out.push(([0.0, 0.0, 1.0, 1.0], [0.86, 0.88, 0.92, 0.015 * k]));
+    out.push(([0.0, 0.0, 1.0, 1.0], [0.02, 0.025, 0.035, FLASH_SHADE * k]));
     for i in 0..WASH_RINGS {
         let d = WASH_STEP * (i + 1) as f32;
-        let c = [0.98, 0.93, 0.76, FLASH_BAND_ALPHA * k];
+        let c = [FLASH_INK[0], FLASH_INK[1], FLASH_INK[2], FLASH_BAND_ALPHA * k];
         out.push(([0.0, 0.0, 1.0, d * 0.8], c));
         out.push(([0.0, panel_top - d * 0.35, 1.0, d * 0.35], c));
         out.push(([0.0, 0.0, d, 1.0], c));
         out.push(([1.0 - d, 0.0, d, 1.0], c));
     }
-    out.push(([0.0, 0.0, 1.0, LETTERBOX_H * k], [0.0, 0.0, 0.0, 0.9 * k]));
+    let bar = LETTERBOX_H * k;
+    out.push(([0.0, bar, 1.0, FLASH_KEYLINE_H], [FLASH_SILVER[0], FLASH_SILVER[1], FLASH_SILVER[2], 0.85 * k]));
+    out.push(([0.0, 0.0, 1.0, bar], [0.0, 0.0, 0.0, 0.9 * k]));
     out
 }
 
-/// Alpha of one FLASH glare band at full strength. Blending runs in linear
-/// space on an sRGB target, so pale-on-dark needs far less alpha than the
-/// claw's ink to read as the same weight.
-pub const FLASH_BAND_ALPHA: f32 = 0.01;
-/// Gold-white FLASH speed streaks (claw streaks are bone-white ink).
-pub const FLASH_STREAK: [f32; 3] = [1.0, 0.95, 0.74];
+/// Alpha of one FLASH steel-ink band at full strength: a touch under the
+/// claw's so the silver streaks carry the cut-in, not a black hole.
+pub const FLASH_BAND_ALPHA: f32 = 0.07;
+/// Steel ink of the FLASH vignette (cold, never red).
+pub const FLASH_INK: [f32; 3] = [0.006, 0.008, 0.012];
+/// Cold shade over the whole frame (the old pale lift washed it into fog).
+pub const FLASH_SHADE: f32 = 0.14;
+/// Silver for the FLASH keyline, streaks and tone dots.
+pub const FLASH_SILVER: [f32; 3] = [0.80, 0.84, 0.90];
+/// Keyline height (normalized; ~2 px at 800).
+pub const FLASH_KEYLINE_H: f32 = 0.0025;
+/// Silver FLASH speed streaks (claw streaks are bone-white ink).
+pub const FLASH_STREAK: [f32; 3] = FLASH_SILVER;
 /// FLASH cut-in caption.
 pub const FLASH_CAPTION: &str = "QUICKSWORD";
 
@@ -572,8 +583,9 @@ mod tests {
         assert!(cutin_tone(CutInKind::Claw, 0.0, 1280.0, 800.0, 0.85).is_none());
         let (claw, ct) = cutin_tone(CutInKind::Claw, 1.0, 1280.0, 800.0, 0.85).unwrap();
         let (flash, ft) = cutin_tone(CutInKind::Flash, 1.0, 1280.0, 800.0, 0.85).unwrap();
-        // Ink-black dots, never tinted like the wash.
-        assert!(claw[..3].iter().chain(&flash[..3]).all(|c| *c < 0.05));
+        // Claw: ink-black dots; FLASH: silver print dots on its steel-ink rim.
+        assert!(claw[..3].iter().all(|c| *c < 0.05));
+        assert!(flash[..3].iter().all(|c| *c > 0.2 && *c < 0.5));
         assert!(flash[3] < claw[3] && ft[1] < ct[1]);
         // Dots never merge into a solid fill (r = 0.56 * sqrt(cover) < 0.5).
         assert!(0.56 * ct[1].sqrt() < 0.5);
@@ -710,22 +722,28 @@ mod tests {
     }
 
     #[test]
-    fn flash_wash_is_pale_yoki_not_blood() {
+    fn flash_wash_is_silver_ink_not_fog_or_blood() {
         assert!(flash_wash(0.0, 0.84).is_empty());
         let full = flash_wash(1.0, 0.84);
-        assert_eq!(full.len(), cutin_wash(1.0, 0.84).len());
+        assert_eq!(full.len(), cutin_wash(1.0, 0.84).len() + 1, "plus the keyline");
         let centre = [0.5, 0.45];
         let over: Vec<_> = full
             .iter()
             .filter(|(r, _)| centre[0] >= r[0] && centre[0] <= r[0] + r[2] && centre[1] >= r[1] && centre[1] <= r[1] + r[3])
             .collect();
-        assert_eq!(over.len(), 1, "centre only gets the light lift");
-        assert!(over[0].1[3] <= 0.1, "board stays readable under the glare");
-        for (r, c) in &full[..full.len() - 1] {
+        assert_eq!(over.len(), 1, "centre only gets the shade");
+        let c = over[0].1;
+        assert!(c[3] <= 0.15 && c[0].max(c[1]).max(c[2]) < 0.1, "board shaded, not fogged: {c:?}");
+        let (rings, rest) = full[1..].split_at(WASH_RINGS * 4);
+        for (r, c) in rings {
             assert!(r[1] + r[3] <= 0.84 + 1e-5 || r[3] >= 1.0, "{r:?} spills under the HUD");
-            assert!(c[0].min(c[1]).min(c[2]) > 0.7, "pale silver/gold-white, got {c:?}");
-            assert!(c[1] > c[0] * 0.8, "never blood-red: {c:?}");
+            assert!(c[0].max(c[1]).max(c[2]) < 0.05 && c[2] >= c[0], "cold steel ink, got {c:?}");
         }
-        assert!(FLASH_STREAK[0] >= FLASH_STREAK[1] && FLASH_STREAK[1] > FLASH_STREAK[2]);
+        // Crisp silver keyline under the letterbox, then the bar itself.
+        let (line, lc) = rest[0];
+        assert!(line[1] <= LETTERBOX_H + 1e-6 && line[3] <= 0.004 && lc[0].min(lc[1]).min(lc[2]) > 0.7);
+        assert!(FLASH_STREAK[2] >= FLASH_STREAK[1] && FLASH_STREAK[1] >= FLASH_STREAK[0], "silver, not gold");
+        let (tone, _) = cutin_tone(CutInKind::Flash, 1.0, 1280.0, 800.0, 0.84).unwrap();
+        assert!(tone[0] > 0.2 && tone[2] >= tone[0], "silver dots read on the steel rim");
     }
 }

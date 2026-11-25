@@ -371,12 +371,13 @@ impl Renderer {
             if i == 0 {
                 // Same gold ring language as acting units on the board; blood
                 // when a yoma owns the beat so the enemy phase reads at a glance.
-                self.blit_px(
-                    rc,
-                    self.tex("kenney/ui/hex.png"),
-                    [x - 0.005, Y + 0.001, CHIP_W + 0.010, CHIP_H * 0.80],
-                    queue_ring_tint(u.side),
-                );
+                let ring = [x - 0.005, Y + 0.001, CHIP_W + 0.010, CHIP_H * 0.80];
+                if u.side == Side::Enemy {
+                    let (px, py) = (2.0 / w.max(1.0), 2.0 / h.max(1.0));
+                    let edge = [ring[0] - px, ring[1] - py, ring[2] + 2.0 * px, ring[3] + 2.0 * py];
+                    self.blit_px(rc, self.tex("kenney/ui/hex.png"), edge, QUEUE_RING_ACCENT);
+                }
+                self.blit_px(rc, self.tex("kenney/ui/hex.png"), ring, queue_ring_tint(u.side));
             }
             self.blit_portrait(rc, self.tex(&u.portrait), portrait, u.side, [1.0; 4]);
             self.tone_shade(rc, portrait, 0.4, chrome::TONE_INK, w, h);
@@ -457,9 +458,17 @@ pub(crate) fn enemy_phase_caption(fast: bool) -> (&'static str, [f32; 4]) {
 pub(crate) fn queue_ring_tint(side: Side) -> [f32; 4] {
     match side {
         Side::Player => [0.95, 0.82, 0.35, 0.55],
-        Side::Enemy => [0.86, 0.20, 0.16, 0.80],
+        // Ink ring around the grey yoma chip; `QUEUE_RING_ACCENT` edges it.
+        Side::Enemy => [0.012, 0.008, 0.008, 0.92],
     }
 }
+
+/// Live key-hint chip tint: ash at lower alpha, so the Kenney keycaps sit
+/// under Clare and the button type instead of being the brightest HUD mark.
+pub(crate) const KEY_PROMPT: [f32; 4] = [0.50, 0.48, 0.45, 0.62];
+
+/// Thin blood edge drawn just outside an enemy's ink acting ring.
+pub(crate) const QUEUE_RING_ACCENT: [f32; 4] = [0.62, 0.06, 0.05, 0.9];
 
 /// DESIGN §10 band short name for the combat HUD (open the bar, not power-up).
 pub(crate) fn trans_band(trans: i32) -> &'static str {
@@ -868,5 +877,19 @@ mod tests {
             }
             assert!(!overlaps(rows[i], card.portrait));
         }
+    }
+
+    #[test]
+    fn hud_marks_stay_under_the_type_and_yoma_ring_is_ink() {
+        let luma = |c: [f32; 4]| (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) * c[3];
+        // Key hints sit under the ash button type (they were the brightest mark).
+        assert!(luma(super::KEY_PROMPT) < luma(super::ASH_TYPE) * 0.5);
+        assert!(luma(super::KEY_PROMPT) > luma(super::DISABLED_PROMPT), "live still reads over dimmed");
+        // Yoma ring: near-black ink with a blood edge, not a salmon block.
+        let ring = super::queue_ring_tint(Side::Enemy);
+        assert!(ring[0].max(ring[1]).max(ring[2]) < 0.05 && ring[3] > 0.8);
+        let a = super::QUEUE_RING_ACCENT;
+        assert!(a[0] > 0.5 && a[1] < 0.1 && a[2] < 0.1);
+        assert_eq!(super::queue_ring_tint(Side::Player), [0.95, 0.82, 0.35, 0.55], "party ring unchanged");
     }
 }
