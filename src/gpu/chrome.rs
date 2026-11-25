@@ -13,6 +13,8 @@ pub(crate) const STEEL_SHADOW: [f32; 4] = [0.012, 0.012, 0.014, 0.95];
 pub(crate) const BLOOD_INK: [f32; 4] = [0.20, 0.008, 0.007, 0.95];
 /// Forfeit plate: deep blood instead of candy red.
 pub(crate) const BLOOD_PLATE: [f32; 4] = [0.075, 0.004, 0.004, 0.96];
+/// Crit splash: fresh blood, the one saturated colour on screen.
+pub(crate) const SPLASH_RED: [f32; 3] = [0.50, 0.008, 0.012];
 
 impl Renderer {
     /// Bevelled steel frame one pixel wide around `r` (normalized coords).
@@ -131,38 +133,57 @@ impl Renderer {
         self.steel_frame(rc, r, w, h);
     }
 
-    /// Ink gradient: `bands` stacked strips growing from an edge.
-    pub(super) fn ink_fade(
+    /// C4 crit splash (Darkest Dungeon style): a blood-ink blot, spray and
+    /// cut streaks behind a SOLID hit, as `SPLASH_FRAMES` held frames. The
+    /// scene vignette / torch now live in hunt.wgsl (smooth, dithered).
+    pub(super) fn crit_splash(
         &self,
         rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>,
-        y: f32,
-        height: f32,
-        from_top: bool,
-        alpha: f32,
+        game: &Game,
+        w: f32,
+        h: f32,
     ) {
-        const BANDS: usize = 6;
-        for i in 0..BANDS {
-            let d = height * (i + 1) as f32 / BANDS as f32;
-            let y0 = if from_top { y } else { y - d };
-            self.rect(rc, [0.0, y0, 1.0, d], [0.0, 0.0, 0.0, alpha / BANDS as f32]);
+        let Some(s) = game.fx.splash else {
+            return;
+        };
+        let f = s.frame() as f32;
+        let fade = 1.0 - 0.3 * f;
+        let aspect = h / w.max(1.0);
+        if f == 0.0 {
+            // Impact frame: the whole scene takes a blood wash.
+            self.rect(rc, [0.0, 0.0, 1.0, 1.0], [0.25, 0.0, 0.005, 0.2]);
         }
-    }
-
-    /// Nest vignette: the clearing's edges sink into dark (left/right/top).
-    pub(super) fn nest_vignette(
-        &self,
-        rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>,
-        panel_top: f32,
-    ) {
-        const BANDS: usize = 6;
-        for i in 0..BANDS {
-            let d = 0.03 * (i + 1) as f32;
-            let c = [0.0, 0.0, 0.0, 0.085];
-            self.rect(rc, [0.0, 0.0, d, 1.0], c);
-            self.rect(rc, [1.0 - d, 0.0, d, 1.0], c);
+        let blot = self.tex("kenney/fx/scorch.png");
+        let red = |a: f32| [SPLASH_RED[0], SPLASH_RED[1], SPLASH_RED[2], a * fade];
+        let splat = |rc: &mut _, x: f32, y: f32, size: f32, flip: bool, tint: [f32; 4]| {
+            let uv = if flip { [1.0, 0.0, -1.0, 1.0] } else { [0.0, 0.0, 1.0, 1.0] };
+            let pos = [x - size * aspect * 0.5, y - size * 0.5, size * aspect, size];
+            self.blit_uv(rc, blot, self.sampler, pos, uv, tint);
+        };
+        // Ink-black backing, then a doubled blood blot that grows per frame.
+        let size = 0.62 + 0.1 * f;
+        splat(rc, s.x, s.y, size * 1.2, true, [0.0, 0.0, 0.0, 0.55 * fade]);
+        for (k, flip) in [(1.0, false), (0.8, true)] {
+            splat(rc, s.x, s.y, size * k, flip, red(1.0));
         }
-        self.ink_fade(rc, 0.0, 0.16, true, 0.55);
-        self.ink_fade(rc, panel_top, 0.08, false, 0.5);
+        // Spray thrown further out each frame (golden-angle spread, fixed per hit).
+        for i in 0..14 {
+            let a = i as f32 * 2.39996 + s.x * 17.0;
+            let r = (0.10 + 0.04 * (i % 4) as f32) * (1.0 + 0.5 * f);
+            let d = 0.05 + 0.03 * ((i * 7) % 3) as f32;
+            splat(rc, s.x + a.cos() * r * aspect, s.y + a.sin() * r * 0.75, d, i % 2 == 0, red(0.95));
+        }
+        // Tapered cut streaks: a thick short core over a long hairline.
+        for i in 0..4 {
+            let len = 0.34 + 0.08 * i as f32 + 0.06 * f;
+            let dy = (i as f32 - 1.5) * 0.03 + 0.01 * (i % 2) as f32;
+            let x0 = s.x - len * (0.5 + 0.12 * (i % 2) as f32);
+            for (k, px) in [(1.0, 1.0), (0.6, 2.0), (0.3, 4.0)] {
+                let t = px / h.max(1.0);
+                let x = x0 + len * (1.0 - k) * 0.5;
+                self.rect(rc, [x, s.y + dy - t * 0.5, len * k, t], red(0.9));
+            }
+        }
     }
 }
 

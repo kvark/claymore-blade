@@ -259,26 +259,26 @@ impl Renderer {
                     lamp0c: [0.85, 0.82, 0.75, 1.8],
                     lamp1: [-0.4, scale * 0.4, 0.35, 0.25],
                     lamp1c: [0.35, 0.40, 0.48, 2.5],
+                    torch: [0.0; 4],
                 },
             },
         );
         rc.bind_vertex(0, buf.into());
         // Clare steel tint — keep luminance below wash-out so normals show facing.
         let (cr, cg, cb) = (0.72_f32, 0.74, 0.78);
-        rc.bind(
-            1,
-            &HuntDraw {
-                locals: HuntLocal {
-                    world: [0.0, bob_y, 0.0, scale],
-                    color: [cr, cg, cb, scale],
-                    pose: [face.cos(), face.sin(), 0.0, 0.04],
-                    rim: NO_RIM,
-                        mat: [0.0; 4],
-                    joints: crate::skel::identity_palette(),
-                },
-            },
-        );
-        rc.draw(0, count, 0, 1);
+        let locals = HuntLocal {
+            world: [0.0, bob_y, 0.0, scale],
+            color: [cr, cg, cb, scale],
+            pose: [face.cos(), face.sin(), 0.0, 0.04],
+            rim: NO_RIM,
+            mat: [0.0; 4],
+            joints: crate::skel::identity_palette(),
+        };
+        // C1 line art on the island too: the same ink hull as on the board.
+        for locals in [locals, super::nest::ink_hull(locals)] {
+            rc.bind(1, &HuntDraw { locals });
+            rc.draw(0, count, 0, 1);
+        }
     }
 }
 

@@ -184,7 +184,7 @@ impl Renderer {
         }
         let bar = hud::combat_bar();
         let panel_top = bar.wait.y - 0.03;
-        self.nest_vignette(&mut rc, panel_top);
+        self.crit_splash(&mut rc, game, w, h);
         self.draw_cutin(&mut rc, game, w, h);
         // Ink action panel with a worn-steel seam over a dried-blood hairline.
         self.rect(&mut rc, [0.0, panel_top, 1.0, 1.0 - panel_top], chrome::INK);

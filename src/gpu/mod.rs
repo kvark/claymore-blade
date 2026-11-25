@@ -101,6 +101,8 @@ struct HuntGlobals {
     lamp0c: [f32; 4],
     lamp1: [f32; 4],
     lamp1c: [f32; 4],
+    /// C4 torch pool: world x, z, radius, strength (0 = off: no torch, no vignette).
+    torch: [f32; 4],
 }
 
 #[derive(blade_macros::ShaderData)]
