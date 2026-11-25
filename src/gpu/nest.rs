@@ -17,6 +17,27 @@ pub(super) const MAT_INK: f32 = 7.0;
 pub(super) const INK_HULL_PX: f32 = 1.3;
 pub(super) const INK_HULL_DEPTH: f32 = 0.002;
 
+/// Seed that marks the board's under-tile plinths: no ink on them, so the
+/// tile gaps stay plain shadow instead of hatching.
+pub(super) const PLINTH_SEED: f32 = -1.0;
+/// C4 torchlight: pool radius in hex radii around Clare (about 4.5 hexes),
+/// falling to `TORCH_FLOOR` (hunt.wgsl) at the rim, never to black.
+pub(super) const TORCH_RADIUS: f32 = 8.0;
+
+/// `HuntGlobals::torch`: the pool follows Clare (else the first living
+/// party member); 0 strength when the party is gone.
+pub(super) fn torch(combat: &CombatState, size: f32, yaw: u8) -> [f32; 4] {
+    let alive = |u: &&crate::combat::Unit| !u.dead && u.side == Side::Player;
+    let lead = combat.units.iter().filter(alive).find(|u| u.template_id == "clare");
+    match lead.or_else(|| combat.units.iter().find(alive)) {
+        Some(u) => {
+            let (x, z) = axial_to_world_yaw(core_hex(u), size, yaw);
+            [x, z, size * TORCH_RADIUS, 1.0]
+        }
+        None => [0.0, 0.0, 1.0, 0.0],
+    }
+}
+
 /// The ink-hull redraw of a fighter: same pose and skin, drawn black.
 pub(super) fn ink_hull(body: HuntLocal) -> HuntLocal {
     HuntLocal { rim: NO_RIM, mat: [MAT_INK, INK_HULL_PX, INK_HULL_DEPTH, 1.0], ..body }
@@ -201,6 +222,38 @@ mod shader_tests {
         assert_eq!(hull.mat[0], MAT_INK);
         // A thin contour (about a pixel) pushed behind, never in front of, the body.
         assert!(hull.mat[1] > 0.5 && hull.mat[1] < 2.5 && hull.mat[2] > 0.0 && hull.mat[2] < 0.01);
+    }
+
+    #[test]
+    fn torch_follows_clare_then_the_party_and_goes_out_with_them() {
+        let raw = include_str!("../../src/game/testdata/a9841f1-paburo-raki-combat.json");
+        let v: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let mut combat: CombatState = serde_json::from_value(v["combat"].clone()).unwrap();
+        let at = |c: &CombatState, id: &str| {
+            let u = c.units.iter().find(|u| u.id == id).unwrap();
+            axial_to_world_yaw(core_hex(u), 2.0, 1)
+        };
+        let (cx, cz) = at(&combat, "clare");
+        assert_eq!(torch(&combat, 2.0, 1), [cx, cz, 2.0 * TORCH_RADIUS, 1.0]);
+        combat.units.iter_mut().find(|u| u.id == "clare").unwrap().dead = true;
+        let (rx, rz) = at(&combat, "raki");
+        assert_eq!(torch(&combat, 2.0, 1), [rx, rz, 2.0 * TORCH_RADIUS, 1.0]);
+        for u in combat.units.iter_mut().filter(|u| u.side == Side::Player) {
+            u.dead = true;
+        }
+        assert_eq!(torch(&combat, 2.0, 1)[3], 0.0);
+    }
+
+    #[test]
+    fn c4_light_is_shader_side_and_spares_plinths() {
+        let hunt = include_str!("../../assets/hunt.wgsl");
+        assert!(hunt.contains("lamp1c: vec4<f32>,\n    torch: vec4<f32>,\n};"), "Globals layout matches HuntGlobals");
+        assert!(hunt.contains("fn c4_light(") && hunt.contains("if (v.mat.y < -0.5) {"));
+        assert!(PLINTH_SEED < -0.5);
+        // Far hexes darken, never vanish.
+        let floor: f32 = hunt.split("const TORCH_FLOOR: f32 = ").nth(1).unwrap()
+            .split(';').next().unwrap().parse().unwrap();
+        assert!(floor >= 0.3 && floor < 1.0, "{floor}");
     }
 
     #[test]

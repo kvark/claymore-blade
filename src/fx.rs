@@ -65,8 +65,32 @@ pub struct Burst {
     pub tint: [f32; 4],
 }
 
+/// C4 crit splash: a brief blood-ink frame behind a SOLID hit.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Splash {
+    pub x: f32,
+    pub y: f32,
+    /// Seconds left (wall clock, so hitstop never stretches it).
+    pub life: f32,
+    /// The hit killed its target: only kills get the frame-0 scene wash.
+    pub kill: bool,
+}
+
+/// Crit splash length: three held frames over a quarter second.
+pub const SPLASH_LIFE: f32 = 0.25;
+pub const SPLASH_FRAMES: u32 = 3;
+
+impl Splash {
+    /// Held anime frame 0..SPLASH_FRAMES (0 = the impact frame).
+    pub fn frame(&self) -> u32 {
+        let u = 1.0 - (self.life / SPLASH_LIFE).clamp(0.0, 1.0);
+        ((u * SPLASH_FRAMES as f32) as u32).min(SPLASH_FRAMES - 1)
+    }
+}
+
 pub struct Fx {
     pub time: f32,
+    pub splash: Option<Splash>,
     pub trauma: f32,
     pub hitstop: f32,
     pub flash: f32,
@@ -81,6 +105,7 @@ impl Default for Fx {
     fn default() -> Self {
         Self {
             time: 0.0,
+            splash: None,
             trauma: 0.0,
             hitstop: 0.0,
             flash: 0.0,
@@ -96,6 +121,10 @@ impl Default for Fx {
 impl Fx {
     pub fn tick(&mut self, dt: f32) {
         let dt = dt.clamp(0.0, 0.08);
+        if let Some(s) = self.splash.as_mut() {
+            s.life -= dt;
+        }
+        self.splash = self.splash.filter(|s| s.life > 0.0);
         let sim = if self.hitstop > 0.0 {
             self.hitstop = (self.hitstop - dt).max(0.0);
             dt * 0.15
@@ -196,6 +225,10 @@ impl Fx {
         };
         self.add_trauma(trauma);
         self.flash = (self.flash + flash).min(0.45);
+        if kind == "death" {
+            // Death events land just before their SOLID outcome line.
+            self.splash = Some(Splash { x, y, life: SPLASH_LIFE, kill: true });
+        }
         if kind == "hit" || kind == "death" {
             self.hitstop = self.hitstop.max(0.05);
         }
@@ -259,6 +292,12 @@ impl Fx {
             ),
             _ => return,
         };
+        if matches!(kind, "solid" | "hit" | "death") {
+            // Keep the kill flag from this same beat's death event.
+            let kill = kind == "death"
+                || self.splash.is_some_and(|s| s.kill && s.life >= SPLASH_LIFE - 1e-4);
+            self.splash = Some(Splash { x, y, life: SPLASH_LIFE, kill });
+        }
         self.floaters.push(Floater {
             x: x - 0.03,
             y: y - 0.05,
@@ -450,6 +489,44 @@ mod tests {
         // Miss should linger long enough to read.
         let miss = fx.floaters.iter().find(|f| f.text == "MISS").unwrap();
         assert!(miss.life >= 1.5);
+    }
+
+    #[test]
+    fn solid_hits_splash_blood_for_a_quarter_second() {
+        let mut fx = Fx::default();
+        for kind in ["miss", "glance", "blocked"] {
+            fx.emit_outcome(0.4, 0.5, kind, 3);
+            assert!(fx.splash.is_none(), "{kind} must not splash");
+        }
+        fx.emit_outcome(0.4, 0.5, "solid", 14);
+        let s = fx.splash.expect("SOLID is the crit tier");
+        assert_eq!((s.x, s.y, s.frame(), s.kill), (0.4, 0.5, 0, false));
+        // Wall-clock: a hitstop (sim at 15%) must not stretch it.
+        fx.hitstop = 1.0;
+        let mut t = 0.0;
+        let mut frames = Vec::new();
+        while let Some(s) = fx.splash {
+            frames.push(s.frame());
+            fx.tick(1.0 / 60.0);
+            t += 1.0 / 60.0;
+        }
+        assert!(t >= 0.2 && t <= 0.3 + 1e-3, "{t}");
+        frames.dedup();
+        assert_eq!(frames, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn only_a_kill_marks_the_splash_for_the_scene_wash() {
+        // combat_flow order: the death event's emit_hit, then the SOLID line.
+        let mut fx = Fx::default();
+        fx.emit_hit(0.3, 0.4, 20, "death");
+        fx.emit_outcome(0.3, 0.38, "solid", 20);
+        assert!(fx.splash.unwrap().kill);
+        // A later plain SOLID (next beat) is not a kill.
+        fx.tick(0.1);
+        fx.emit_hit(0.6, 0.4, 5, "hit");
+        fx.emit_outcome(0.6, 0.38, "solid", 5);
+        assert!(!fx.splash.unwrap().kill);
     }
 
     #[test]

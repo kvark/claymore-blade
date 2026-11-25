@@ -7,6 +7,7 @@ struct Globals {
     lamp0c: vec4<f32>,
     lamp1: vec4<f32>,
     lamp1c: vec4<f32>,
+    torch: vec4<f32>,
 };
 var<uniform> globals: Globals;
 
@@ -41,6 +42,10 @@ struct VSOut {
     @location(4) local: vec4<f32>,
     // Per-draw rim (rgb, strength) for the per-pixel silhouette edge.
     @location(5) rim: vec4<f32>,
+    // C4: offset from the torch in pool radii (xy) + strength (z; 0 = off).
+    @location(6) torch: vec3<f32>,
+    // Screen position in NDC for the vignette.
+    @location(7) ndc: vec2<f32>,
 };
 
 // Material kinds (`HuntLocal::mat.x`); see `gpu::board::Material`.
@@ -66,6 +71,16 @@ const INK_PX: f32 = 0.9;
 const SILVER: vec3<f32> = vec3<f32>(0.90, 0.96, 1.0);
 const STEEL: vec3<f32> = vec3<f32>(0.84, 0.91, 1.0);
 const VIEW: vec3<f32> = vec3<f32>(0.57735027);
+// C4 gothic light: a warm torch pool around Clare that sinks to TORCH_FLOOR
+// (tiles) / TORCH_FLOOR_UNIT (fighters) at its rim, darker but readable, and
+// a heavy smooth vignette, dithered so the dark falloff never bands.
+const TORCH_WARM: vec3<f32> = vec3<f32>(1.38, 1.14, 0.86);
+const TORCH_FLOOR: f32 = 0.35;
+const TORCH_FLOOR_UNIT: f32 = 0.62;
+const VIG_STRENGTH: f32 = 0.92;
+const VIG_IN: f32 = 0.45;
+const VIG_OUT: f32 = 1.5;
+const DITHER: f32 = 0.04;
 
 fn unpack_joints(raw: u32) -> vec4<u32> {
     return (vec4<u32>(raw) >> vec4<u32>(0u, 8u, 16u, 24u)) & vec4<u32>(0xFFu);
@@ -154,6 +169,8 @@ fn vs_main(v: Vertex) -> VSOut {
     o.mat = locals.mat;
     o.local = vec4<f32>(v.pos, 0.0);
     o.rim = locals.rim;
+    o.torch = vec3<f32>((p.xz - globals.torch.xy) / max(globals.torch.z, 0.001), globals.torch.w);
+    o.ndc = vec2<f32>(ndc_x, ndc_y);
     return o;
 }
 
@@ -218,8 +235,7 @@ fn ink_line(d: f32, fw: f32) -> f32 {
     return 1.0 - smoothstep(fw * INK_PX * 0.5, fw * INK_PX * 1.5, d);
 }
 
-@fragment
-fn fs_main(v: VSOut) -> @location(0) vec4<f32> {
+fn surface(v: VSOut) -> vec4<f32> {
     let kind = v.mat.x;
     // Prism ink edges, measured in raw mesh space. Derivatives are taken here,
     // before any branch on the material, to stay in uniform control flow.
@@ -280,7 +296,9 @@ fn fs_main(v: VSOut) -> @location(0) vec4<f32> {
         m = vec3<f32>(0.62, 0.55, 0.50) * (0.7 + 0.5 * n);
     }
     var ink: f32;
-    if (v.normal.y > 0.5) {
+    if (v.mat.y < -0.5) {
+        ink = 0.0; // under-tile plinth: plain shadow in the gaps, no hatching
+    } else if (v.normal.y > 0.5) {
         ink = ink_line(hex_d, fw_hex);
     } else {
         ink = ink_line(top_d, fw_top);
@@ -290,4 +308,26 @@ fn fs_main(v: VSOut) -> @location(0) vec4<f32> {
         c = mix(c, FOG, fog);
     }
     return vec4<f32>(c, 1.0);
+}
+
+// C4 torch pool + vignette over the graded scene (combat only: torch.z).
+fn c4_light(c: vec3<f32>, v: VSOut, fighter: bool) -> vec3<f32> {
+    let t = 1.0 - smoothstep(0.25, 1.0, length(v.torch.xy));
+    var pool = mix(vec3<f32>(TORCH_FLOOR), TORCH_WARM, t);
+    if (fighter) {
+        pool = vec3<f32>(mix(TORCH_FLOOR_UNIT, 1.0, t));
+    }
+    let r = length(v.ndc * vec2<f32>(0.9, 1.0) - vec2<f32>(0.0, 0.1));
+    let vig = 1.0 - VIG_STRENGTH * smoothstep(VIG_IN, VIG_OUT, r);
+    let dither = 1.0 + (hash2(v.clip.xy) - 0.5) * DITHER;
+    return c * mix(vec3<f32>(1.0), pool * vig * dither, v.torch.z);
+}
+
+@fragment
+fn fs_main(v: VSOut) -> @location(0) vec4<f32> {
+    let c = surface(v);
+    if (v.mat.x > MAT_INK - 0.5) {
+        return c;
+    }
+    return vec4<f32>(c4_light(c.xyz, v, v.mat.x < 0.5), 1.0);
 }

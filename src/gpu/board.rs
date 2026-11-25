@@ -35,6 +35,7 @@ impl Renderer {
                     lamp0c,
                     lamp1,
                     lamp1c,
+                    torch: nest::torch(combat, size, yaw),
                 },
             },
         );
@@ -57,7 +58,7 @@ impl Renderer {
                         color: [0.05, 0.045, 0.04, board_ground_height(size)],
                         pose: [px, py, pz, 0.04],
                         rim: NO_RIM,
-                        mat: nest::material(nest::MAT_ROCK, size, combat, 0.0),
+                        mat: nest::material(nest::MAT_ROCK, size, combat, nest::PLINTH_SEED),
                         joints: identity_palette(),
                     },
                 },
@@ -194,20 +195,18 @@ impl Renderer {
                 });
                 let glow = bones[1].glow;
                 rc.bind_vertex(0, self.fighter.into());
-                rc.bind(
-                    1,
-                    &HuntDraw {
-                        locals: HuntLocal {
-                            world: [0.0, 0.0, 0.0, 1.0],
-                            color: [u.color[0], u.color[1], u.color[2], 1.0],
-                            pose: [1.0, 0.0, 0.0, glow],
-                            rim: NO_RIM,
-                        mat: [0.0; 4],
-                            joints: joint_palette(&bones),
-                        },
-                    },
-                );
-                rc.draw(0, self.fighter_count, 0, 1);
+                let locals = HuntLocal {
+                    world: [0.0, 0.0, 0.0, 1.0],
+                    color: [u.color[0], u.color[1], u.color[2], 1.0],
+                    pose: [1.0, 0.0, 0.0, glow],
+                    rim: NO_RIM,
+                    mat: [0.0; 4],
+                    joints: joint_palette(&bones),
+                };
+                for locals in [locals, nest::ink_hull(locals)] {
+                    rc.bind(1, &HuntDraw { locals });
+                    rc.draw(0, self.fighter_count, 0, 1);
+                }
             }
             rc.bind_vertex(0, self.prism.into());
         }
