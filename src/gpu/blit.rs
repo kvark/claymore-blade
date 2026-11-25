@@ -122,7 +122,7 @@ impl Renderer {
     /// Key-hint chip; dimmed with its button while turn input is blocked.
     pub(super) fn prompt_state(&self, rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>, rel: &str, x: f32, y: f32, s: f32, enabled: bool) {
         let tint = if enabled {
-            [0.85, 0.8, 0.7, 0.95]
+            super::combat_ui::KEY_PROMPT
         } else {
             super::combat_ui::DISABLED_PROMPT
         };
