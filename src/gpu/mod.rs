@@ -20,7 +20,6 @@ use bytemuck::{Pod, Zeroable};
 use std::collections::HashMap;
 
 
-const ASH: [f32; 4] = [0.72, 0.64, 0.52, 1.0];
 /// Dark metal plate tint for Kenney UI buttons (ink #0b0a09 family).
 const INK_PLATE: [f32; 4] = [0.08, 0.06, 0.05, 1.0];
 /// Ash type #ebe4d6 for button labels.
