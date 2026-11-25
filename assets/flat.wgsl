@@ -51,6 +51,13 @@ fn fs_main(v: VSOut) -> @location(0) vec4<f32> {
     let g = vec2<f32>(v.clip.x + v.clip.y, v.clip.x - v.clip.y) * 0.70710678 / max(v.tone.x, 1.0);
     let d = length(fract(g) - vec2<f32>(0.5));
     let aa = max(fwidth(d), 0.03);
+    if (v.tone.x < 0.0) {
+        // Ink portrait: keep `tone.y` of the chroma, scale by `tone.z`
+        // (the board's yoma flesh, so HUD yoma match the dark mesh).
+        let l = dot(texel.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+        let rgb = (vec3<f32>(l) + (texel.rgb - vec3<f32>(l)) * v.tone.y) * v.tone.z;
+        return vec4<f32>(rgb, texel.a) * v.tint;
+    }
     if (v.tone.y <= 0.0) {
         return texel * v.tint;
     }

@@ -151,11 +151,6 @@ impl Renderer {
             let (sx, sy) = world_to_iso(wx, ground + size * 0.02, wz);
             let px = (ox + sx * zoom) / w;
             let py = (oy + sy * zoom) / h + bob;
-            let tint = if u.side == Side::Player {
-                [1.0, 1.0, 1.0, 1.0]
-            } else {
-                [0.92, 0.55, 0.48, 1.0]
-            };
             let aspect = self.images.get(&u.portrait).map_or(1.0, |texture| texture.aspect);
             let body = if u.side == Side::Enemy {
                 super::board::enemy_portrait_scale()
@@ -175,12 +170,7 @@ impl Renderer {
                     [0.95, 0.82, 0.35, 0.55],
                 );
             }
-            self.blit(
-                &mut rc,
-                self.tex(&u.portrait),
-                portrait,
-                tint,
-            );
+            self.blit_portrait(&mut rc, self.tex(&u.portrait), portrait, u.side, [1.0; 4]);
             let hp = portrait_hp_bar(portrait[0], portrait[1], portrait[2], portrait[3]);
             self.ink_bar(&mut rc, hp, u.hp as f32 / u.max_hp.max(1) as f32, BLOOD, w, h);
         }
@@ -199,7 +189,7 @@ impl Renderer {
             self.rect(&mut rc, card.plate, chrome::INK);
             self.tone_shade(&mut rc, card.plate, 0.35, chrome::TONE_ASH, w, h);
             self.ink_panel(&mut rc, card.plate, w, h);
-            self.blit(&mut rc, self.tex(&u.portrait), card.portrait, [1.0; 4]);
+            self.blit_portrait(&mut rc, self.tex(&u.portrait), card.portrait, u.side, [1.0; 4]);
             self.tone_shade(&mut rc, card.portrait, 0.45, chrome::TONE_INK, w, h);
             self.steel_frame(&mut rc, card.portrait, w, h);
             self.text(&mut rc, &format!("{}  AP {}", u.name, u.ap), card.name[0], card.name[1], card.name[3]);
@@ -382,12 +372,7 @@ impl Renderer {
                     queue_ring_tint(u.side),
                 );
             }
-            let tint = if u.side == Side::Player {
-                [1.0, 1.0, 1.0, 1.0]
-            } else {
-                [0.92, 0.55, 0.48, 1.0]
-            };
-            self.blit(rc, self.tex(&u.portrait), portrait, tint);
+            self.blit_portrait(rc, self.tex(&u.portrait), portrait, u.side, [1.0; 4]);
             self.tone_shade(rc, portrait, 0.4, chrome::TONE_INK, w, h);
             let label = queue_chip_label(&u.name);
             let glyph_h = 0.009;

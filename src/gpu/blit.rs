@@ -31,9 +31,13 @@ impl Renderer {
             let glyph_h = f.glyph_h();
             let mut tint = f.tint;
             tint[3] *= a;
+            let [w, h] = game.ui.screen;
             if f.plate {
-                let [w, h] = game.ui.screen;
                 self.manga_caption(rc, f.plate_rect(), a, w, h);
+            }
+            // C2 ink stroke so numbers read on any wash or tile.
+            for [dx, dy] in super::chrome::stroke_offsets(w, h) {
+                self.text_tint(rc, &f.text, f.x + dx, f.y + dy, glyph_h, [0.0, 0.0, 0.0, 0.9 * a]);
             }
             self.text_tint(rc, &f.text, f.x, f.y, glyph_h, tint);
         }
@@ -169,6 +173,19 @@ impl Renderer {
         tone: [f32; 4],
     ) {
         self.blit_toned(rc, self.white.view, self.sampler, pos, uv, tint, tone);
+    }
+
+    /// Unit portrait: party as painted, yoma inked to the board's dark flesh.
+    pub(super) fn blit_portrait(
+        &self,
+        rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>,
+        view: gpu::TextureView,
+        pos: [f32; 4],
+        side: crate::combat::Side,
+        tint: [f32; 4],
+    ) {
+        let tone = if side == crate::combat::Side::Enemy { super::chrome::YOMA_PORTRAIT_TONE } else { [0.0; 4] };
+        self.blit_toned(rc, view, self.sampler, pos, [0.0, 0.0, 1.0, 1.0], tint, tone);
     }
 
     #[allow(clippy::too_many_arguments)]

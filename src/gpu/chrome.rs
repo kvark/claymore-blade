@@ -26,6 +26,11 @@ pub(crate) const PANEL_CUT_PX: f32 = 8.0;
 /// Screentone dots: ash on the black panels, ink over portraits.
 pub(crate) const TONE_ASH: [f32; 4] = [0.032, 0.032, 0.036, 0.75];
 pub(crate) const TONE_INK: [f32; 4] = [0.0, 0.0, 0.0, 0.8];
+/// `flat.wgsl` ink-portrait mode (`tone.x < 0`): HUD yoma get the board's
+/// dark flesh (`YOMA_FLESH_SAT` chroma, `YOMA_DARK` value), not salmon.
+pub(crate) const YOMA_PORTRAIT_TONE: [f32; 4] = [-1.0, super::board::YOMA_FLESH_SAT, super::board::YOMA_DARK, 0.0];
+/// Floater ink stroke width at 800 px tall; scales with the screen.
+pub(crate) const STROKE_PX: f32 = 1.0;
 /// Tone band (rect heights) and peak dot coverage for HUD shading.
 pub(crate) const HUD_TONE_BAND: f32 = 0.3;
 pub(crate) const HUD_TONE_COVER: f32 = 0.5;
@@ -325,9 +330,37 @@ fn diagonal_cut(c: [f32; 2], len: f32, angle: f32, aspect: f32, thick: f32, min_
         .collect()
 }
 
+/// Eight-way offsets (normalized) for a C2 ink stroke around floater text:
+/// whole pixels, at least one, growing with height so 1080p stays crisp.
+pub(crate) fn stroke_offsets(w: f32, h: f32) -> [[f32; 2]; 8] {
+    let px = (STROKE_PX * h / 800.0).round().max(1.0);
+    let (dx, dy) = (px / w.max(1.0), px / h.max(1.0));
+    [[-dx, -dy], [0.0, -dy], [dx, -dy], [-dx, 0.0], [dx, 0.0], [-dx, dy], [0.0, dy], [dx, dy]]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hud_yoma_portraits_match_board_flesh_and_floaters_get_a_whole_pixel_stroke() {
+        // Mirror of flat.wgsl's ink-portrait branch on the old salmon tint.
+        let t = YOMA_PORTRAIT_TONE;
+        assert!(t[0] < 0.0);
+        let salmon = [0.92, 0.55, 0.48];
+        let l = 0.2126 * salmon[0] + 0.7152 * salmon[1] + 0.0722 * salmon[2];
+        let ink = salmon.map(|c| (l + (c - l) * t[1]) * t[2]);
+        assert_eq!(ink, super::super::board::yoma_flesh(salmon));
+        let chroma = ink[0].max(ink[1]).max(ink[2]) - ink[0].min(ink[1]).min(ink[2]);
+        assert!(chroma < 0.03 && ink[0] >= ink[2], "grey-brown, not salmon: {ink:?}");
+        for (w, h) in [(390.0, 844.0), (1280.0, 800.0), (1920.0, 1080.0)] {
+            let o = stroke_offsets(w, h);
+            let px = (o[4][0] * w, o[6][1] * h);
+            assert!(px.0 >= 1.0 - 1e-4 && px.0 <= 2.0 + 1e-4 && (px.0 - px.0.round()).abs() < 1e-3);
+            assert!((px.0 - px.1).abs() < 1e-3);
+            assert_eq!(o.iter().filter(|d| d[0] == 0.0 && d[1] == 0.0).count(), 0);
+        }
+    }
 
     fn luma(c: [f32; 4]) -> f32 {
         0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
