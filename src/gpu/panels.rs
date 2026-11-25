@@ -1,24 +1,22 @@
 use super::*;
 
 impl Renderer {
-    pub(super) fn draw_result(&self, pass: &mut gpu::RenderCommandEncoder, game: &Game, _w: f32, _h: f32) {
+    pub(super) fn draw_result(&self, pass: &mut gpu::RenderCommandEncoder, game: &Game, w: f32, h: f32) {
         let mut rc = pass.with(&self.flat);
-        self.rect(&mut rc, [0.0, 0.0, 1.0, 1.0], [0.05, 0.04, 0.03, 1.0]);
-        self.blit_px(
-            &mut rc,
-            self.tex("kenney/ui/panel-brown.png"),
-            [0.08, 0.28, 0.62, 0.32],
-            [0.5, 0.4, 0.3, 0.85],
-        );
+        // C1/C4: ash-grey title art under black ink, a manga panel plate with
+        // tone, a blood hairline under the title, and the combat ink button.
+        self.rect(&mut rc, [0.0, 0.0, 1.0, 1.0], chrome::INK);
+        let full = [0.0, 0.0, 1.0, 1.0];
+        self.blit_toned(&mut rc, self.tex("art/title.jpg"), self.sampler, full, full, [1.0; 4], chrome::RESULT_ART_TONE);
+        self.tone_shade(&mut rc, full, 0.3, chrome::TONE_INK, w, h);
+        let plate = chrome::RESULT_PLATE;
+        self.rect(&mut rc, plate, [chrome::INK[0], chrome::INK[1], chrome::INK[2], 0.92]);
+        self.tone_shade(&mut rc, plate, 0.35, chrome::TONE_ASH, w, h);
+        self.ink_panel(&mut rc, plate, w, h);
         self.text(&mut rc, &game.result_title, 0.12, 0.34, 0.022);
-        self.text(&mut rc, &game.result_body, 0.12, 0.44, 0.014);
-        self.kenney_btn(
-            &mut rc,
-            "kenney/ui/button.png",
-            hud::result_ok(),
-            "RETURN",
-            false,
-        );
+        self.rect(&mut rc, [0.12, 0.34 + 0.022 + 0.014, 0.30, 2.0 / h], chrome::BLOOD_INK);
+        self.text_tint(&mut rc, &game.result_body, 0.12, 0.44, 0.014, [0.70, 0.68, 0.64, 1.0]);
+        self.ink_btn(&mut rc, hud::result_ok(), "RETURN", false, false, false, true, w, h);
         self.draw_fx(&mut rc, game);
     }
 

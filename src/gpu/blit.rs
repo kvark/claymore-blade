@@ -189,7 +189,7 @@ impl Renderer {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn blit_toned(
+    pub(super) fn blit_toned(
         &self,
         rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>,
         view: gpu::TextureView,

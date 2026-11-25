@@ -27,8 +27,15 @@ pub(crate) const PANEL_CUT_PX: f32 = 8.0;
 pub(crate) const TONE_ASH: [f32; 4] = [0.032, 0.032, 0.036, 0.75];
 pub(crate) const TONE_INK: [f32; 4] = [0.0, 0.0, 0.0, 0.8];
 /// `flat.wgsl` ink-portrait mode (`tone.x < 0`): HUD yoma get the board's
-/// dark flesh (`YOMA_FLESH_SAT` chroma, `YOMA_DARK` value), not salmon.
-pub(crate) const YOMA_PORTRAIT_TONE: [f32; 4] = [-1.0, super::board::YOMA_FLESH_SAT, super::board::YOMA_DARK, 0.0];
+/// dark flesh (`YOMA_FLESH_SAT` chroma), not salmon; a touch darker than
+/// `YOMA_DARK` since unlit sprites read lighter than the torch-lit mesh.
+pub(crate) const YOMA_PORTRAIT_DARK: f32 = 0.4;
+pub(crate) const YOMA_PORTRAIT_TONE: [f32; 4] = [-1.0, super::board::YOMA_FLESH_SAT, YOMA_PORTRAIT_DARK, 0.0];
+/// Result screen backdrop: title art through the same ink mode, C1 ash-grey
+/// (a trace of chroma) and dark so the ink plate carries the read.
+pub(crate) const RESULT_ART_TONE: [f32; 4] = [-1.0, 0.25, 0.16, 0.0];
+/// Result plate `[x, y, w, h]` (title + body; RETURN sits below it).
+pub(crate) const RESULT_PLATE: [f32; 4] = [0.08, 0.28, 0.62, 0.32];
 /// Floater ink stroke width at 800 px tall; scales with the screen.
 pub(crate) const STROKE_PX: f32 = 1.0;
 /// Tone band (rect heights) and peak dot coverage for HUD shading.
@@ -343,6 +350,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn result_plate_is_on_screen_and_clear_of_return() {
+        let [x, y, w, h] = RESULT_PLATE;
+        assert!(x >= 0.0 && y >= 0.0 && x + w <= 1.0 && y + h <= 1.0);
+        let ok = crate::hud::result_ok().pos();
+        assert!(ok[1] > y + h, "RETURN below the plate");
+        // Art stays dark ash: well under the plate's bone type.
+        assert!(RESULT_ART_TONE[0] < 0.0 && RESULT_ART_TONE[1] <= 0.3 && RESULT_ART_TONE[2] <= 0.2);
+    }
+
+    #[test]
     fn hud_yoma_portraits_match_board_flesh_and_floaters_get_a_whole_pixel_stroke() {
         // Mirror of flat.wgsl's ink-portrait branch on the old salmon tint.
         let t = YOMA_PORTRAIT_TONE;
@@ -350,7 +367,9 @@ mod tests {
         let salmon = [0.92, 0.55, 0.48];
         let l = 0.2126 * salmon[0] + 0.7152 * salmon[1] + 0.0722 * salmon[2];
         let ink = salmon.map(|c| (l + (c - l) * t[1]) * t[2]);
-        assert_eq!(ink, super::super::board::yoma_flesh(salmon));
+        let board = super::super::board::yoma_flesh(salmon);
+        let k = YOMA_PORTRAIT_DARK / super::super::board::YOMA_DARK;
+        assert!(k < 1.0 && ink.iter().zip(board).all(|(a, b)| (a - b * k).abs() < 1e-6), "{ink:?}");
         let chroma = ink[0].max(ink[1]).max(ink[2]) - ink[0].min(ink[1]).min(ink[2]);
         assert!(chroma < 0.03 && ink[0] >= ink[2], "grey-brown, not salmon: {ink:?}");
         for (w, h) in [(390.0, 844.0), (1280.0, 800.0), (1920.0, 1080.0)] {
