@@ -86,6 +86,14 @@ const DITHER: f32 = 0.04;
 const TOON_LO: f32 = 0.38;
 const TOON_HI: f32 = 0.80;
 const TOON_SOFT: f32 = 0.035;
+// Yoma blood rim (fighter mat.y > 0.5): red only on the lit outer edge.
+// Thin limbs are almost all grazing normals, so the soft edge^2 rim and the
+// 0.5 band painted them red end to end; a sharper falloff and a later band
+// leave the dark mass to carry the read, and limbs turned from the sun get
+// only RIM_LIGHT_FLOOR of it. Mirrored by `board::yoma_rim_weight`.
+const YOMA_RIM_POW: f32 = 4.0;
+const YOMA_RIM_EDGE: f32 = 0.75;
+const YOMA_RIM_LIGHT_FLOOR: f32 = 0.25;
 const TOON_LEVELS: vec3<f32> = vec3<f32>(0.20, 0.58, 1.0);
 
 fn unpack_joints(raw: u32) -> vec4<u32> {
@@ -152,7 +160,13 @@ fn vs_main(v: Vertex) -> VSOut {
     // of the lighting (plain math, fine for GLSL ES 3.0 / WebGL2).
     let facing = abs(dot(n, vec3<f32>(0.57735027)));
     let edge = 1.0 - facing;
-    lit += locals.rim.xyz * (locals.rim.w * edge * edge);
+    var rim = locals.rim;
+    var rim_k = edge * edge;
+    if (locals.mat.y > 0.5) {
+        rim.w = rim.w * (YOMA_RIM_LIGHT_FLOOR + (1.0 - YOMA_RIM_LIGHT_FLOOR) * sun);
+        rim_k = pow(edge, YOMA_RIM_POW);
+    }
+    lit += rim.xyz * (rim.w * rim_k);
     // Cool sky fill from above so nothing sits in a dead-black studio void.
     lit += locals.color.xyz * vec3<f32>(0.07, 0.08, 0.10) * (0.6 + 0.4 * n.y);
     var o: VSOut;
@@ -175,7 +189,7 @@ fn vs_main(v: Vertex) -> VSOut {
     o.normal = n;
     o.mat = locals.mat;
     o.local = vec4<f32>(v.pos, 0.0);
-    o.rim = locals.rim;
+    o.rim = rim;
     o.torch = vec3<f32>((p.xz - globals.torch.xy) / max(globals.torch.z, 0.001), globals.torch.w);
     o.ndc = vec2<f32>(ndc_x, ndc_y);
     return o;
@@ -262,7 +276,8 @@ fn surface(v: VSOut) -> vec4<f32> {
         let rim_hi = max(v.rim.r, max(v.rim.g, v.rim.b));
         let rim_sat = (rim_hi - min(v.rim.r, min(v.rim.g, v.rim.b))) / max(rim_hi, 0.001);
         let silver = (1.0 - smoothstep(0.2, 0.4, rim_sat)) * step(0.001, v.rim.w);
-        let band = smoothstep(0.5, 0.5 + max(fw_edge, 0.04), edge) * max(v.rim.w, 0.0);
+        let e0 = select(0.5, YOMA_RIM_EDGE, v.mat.y > 0.5);
+        let band = smoothstep(e0, e0 + max(fw_edge, 0.04), edge) * max(v.rim.w, 0.0);
         // Cel bands (yoma): step the per-vertex light factor into 3 levels.
         let shade = dot(v.color.xyz, vec3<f32>(0.2126, 0.7152, 0.0722)) / max(v.color.w, 0.001);
         let t1 = smoothstep(TOON_LO - TOON_SOFT, TOON_LO + TOON_SOFT, shade);
