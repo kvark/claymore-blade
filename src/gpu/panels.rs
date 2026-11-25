@@ -24,34 +24,32 @@ impl Renderer {
         self.draw_fx(&mut rc, game);
     }
 
-    pub(super) fn draw_codex(&self, pass: &mut gpu::RenderCommandEncoder, _game: &Game, _w: f32, _h: f32) {
+    pub(super) fn draw_codex(&self, pass: &mut gpu::RenderCommandEncoder, _game: &Game, w: f32, h: f32) {
         let mut rc = pass.with(&self.flat);
-        self.rect(&mut rc, [0.0, 0.0, 1.0, 1.0], [0.05, 0.04, 0.03, 1.0]);
-        self.blit_px(
-            &mut rc,
-            self.tex("kenney/ui/banner.png"),
-            CODEX_BANNER,
-            ASH,
-        );
-        self.text(&mut rc, "CODEX", 0.08, 0.07, font::fit("CODEX", 0.022, CODEX_BANNER[2] - 0.04));
-        for (i, w) in WARRIORS.iter().take(8).enumerate() {
+        // Same C2/C4 ink as the result and scene screens; rects and fit as #44.
+        self.rect(&mut rc, [0.0, 0.0, 1.0, 1.0], chrome::INK);
+        self.tone_shade(&mut rc, [0.0, 0.0, 1.0, 1.0], 0.3, chrome::TONE_ASH, w, h);
+        self.ink_plate(&mut rc, CODEX_BANNER, w, h);
+        let g = font::fit("CODEX", 0.022, CODEX_BANNER[2] - 0.04);
+        self.text(&mut rc, "CODEX", 0.08, 0.07, g);
+        let rule = (font::text_w("CODEX", g) + 0.04).min(CODEX_BANNER[0] + CODEX_BANNER[2] - 0.02 - 0.08);
+        self.rect(&mut rc, [0.08, 0.07 + g + 0.006, rule, 2.0 / h], chrome::BLOOD_INK);
+        for (i, wr) in WARRIORS.iter().take(8).enumerate() {
             let col = (i % 4) as f32;
             let row = (i / 4) as f32;
             let x = 0.08 + col * 0.22;
             let y = 0.18 + row * 0.32;
-            self.blit_px(
-                &mut rc,
-                self.tex("kenney/ui/panel-brown.png"),
-                [x, y, 0.20, 0.28],
-                [0.48, 0.38, 0.28, 0.9],
-            );
-            self.blit(&mut rc, self.tex(w.portrait), [x + 0.03, y + 0.02, 0.14, 0.18], [1.0; 4]);
-            self.text(&mut rc, w.name, x + 0.02, y + 0.21, font::fit(w.name, 0.012, CODEX_TEXT_W));
-            self.text(&mut rc, w.title, x + 0.02, y + 0.235, font::fit(w.title, 0.010, CODEX_TEXT_W));
+            self.ink_plate(&mut rc, [x, y, 0.20, 0.28], w, h);
+            let portrait = [x + 0.03, y + 0.02, 0.14, 0.18];
+            self.blit(&mut rc, self.tex(wr.portrait), portrait, [1.0; 4]);
+            self.tone_shade(&mut rc, portrait, 0.4, chrome::TONE_INK, w, h);
+            self.steel_frame(&mut rc, portrait, w, h);
+            self.text(&mut rc, wr.name, x + 0.02, y + 0.21, font::fit(wr.name, 0.012, CODEX_TEXT_W));
+            self.text_tint(&mut rc, wr.title, x + 0.02, y + 0.235, font::fit(wr.title, 0.010, CODEX_TEXT_W), chrome::ASH_BODY);
         }
-        self.text(&mut rc, "CLICK TO CLOSE", 0.08, 0.90, font::fit("CLICK TO CLOSE", 0.014, 0.84));
+        let g = font::fit("CLICK TO CLOSE", 0.014, 0.84);
+        self.text_tint(&mut rc, "CLICK TO CLOSE", 0.08, 0.90, g, super::combat_ui::KEY_PROMPT);
     }
-
 
     pub(super) fn draw_scene(&self, pass: &mut gpu::RenderCommandEncoder, game: &Game, w: f32, h: f32) {
         let mut rc = pass.with(&self.flat);
