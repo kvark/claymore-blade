@@ -284,7 +284,23 @@ pub(super) const YOMA_WIDTH: f32 = 1.4;
 pub(super) const YOMA_FLESH_SAT: f32 = 0.22;
 pub(super) const YOMA_DARK: f32 = 0.5;
 /// Blood rim on the yoma silhouette so the dark mass separates from the board.
-pub(super) const YOMA_RIM: [f32; 4] = [0.90, 0.06, 0.05, 0.6];
+pub(super) const YOMA_RIM: [f32; 4] = [0.90, 0.06, 0.05, 0.4];
+
+/// Yoma rim falloff and light floor, mirrored from hunt.wgsl (the shader
+/// does the work; these back the pure-logic test of the curve).
+#[cfg(test)]
+pub(super) const YOMA_RIM_POW: f32 = 4.0;
+#[cfg(test)]
+pub(super) const YOMA_RIM_LIGHT_FLOOR: f32 = 0.25;
+
+/// Per-vertex yoma rim weight (times `YOMA_RIM` rgb), as hunt.wgsl's vertex
+/// stage computes it: `edge` = 1 - |n . view|, `sun` = n . light (clamped).
+/// Party rims keep the plain `w * edge^2`.
+#[cfg(test)]
+pub(super) fn yoma_rim_weight(edge: f32, sun: f32) -> f32 {
+    let light = YOMA_RIM_LIGHT_FLOOR + (1.0 - YOMA_RIM_LIGHT_FLOOR) * sun.clamp(0.0, 1.0);
+    YOMA_RIM[3] * light * edge.clamp(0.0, 1.0).powf(YOMA_RIM_POW)
+}
 
 /// Dark, desaturated yoma flesh from the catalog colour.
 pub(super) fn yoma_flesh(color: [f32; 3]) -> [f32; 3] {
@@ -469,6 +485,30 @@ mod archive_look_tests {
     }
 
     #[test]
+    fn yoma_rim_only_catches_the_lit_outer_edge() {
+        let old = |edge: f32| 0.6 * edge * edge; // #35: w 0.6, edge^2, any light
+        // A thin limb is mostly grazing (edge ~0.5..0.8): far less red there.
+        let limb: f32 = (5..=8).map(|i| yoma_rim_weight(i as f32 / 10.0, 0.5)).sum();
+        let limb_old: f32 = (5..=8).map(|i| old(i as f32 / 10.0)).sum();
+        assert!(limb < limb_old * 0.25, "{limb} vs {limb_old}");
+        // The true silhouette edge on the lit side still catches blood.
+        assert!(yoma_rim_weight(1.0, 1.0) > 0.35);
+        assert!(yoma_rim_weight(1.0, 1.0) > yoma_rim_weight(0.7, 1.0) * 3.0);
+        // Turned from the light: a quarter at most.
+        assert!((yoma_rim_weight(1.0, 0.0) - yoma_rim_weight(1.0, 1.0) * YOMA_RIM_LIGHT_FLOOR).abs() < 1e-6);
+        // Monotone in edge and light, zero facing the camera.
+        assert_eq!(yoma_rim_weight(0.0, 1.0), 0.0);
+        assert!((0..10).all(|i| yoma_rim_weight(i as f32 / 10.0, 0.6) <= yoma_rim_weight((i + 1) as f32 / 10.0, 0.6)));
+        assert!(YOMA_RIM[3] <= 0.4 + 1e-6);
+        // Constants mirrored in the shader; Raki / Clare rims untouched.
+        let hunt = include_str!("../../assets/hunt.wgsl");
+        assert!(hunt.contains(&format!("const YOMA_RIM_POW: f32 = {YOMA_RIM_POW:.1};")));
+        assert!(hunt.contains(&format!("const YOMA_RIM_LIGHT_FLOOR: f32 = {YOMA_RIM_LIGHT_FLOOR};")));
+        assert_eq!(KID_RIM, [1.0, 0.62, 0.22, 0.55]);
+        assert_eq!(CLARE_RIM, [0.85, 0.90, 1.0, 1.6]);
+    }
+
+    #[test]
     fn hunt_shader_rim_field_matches_hunt_local_layout() {
         let src = include_str!("../../assets/hunt.wgsl")
             .split_whitespace()
@@ -478,7 +518,8 @@ mod archive_look_tests {
             "world: vec4<f32>, color: vec4<f32>, pose: vec4<f32>, rim: vec4<f32>, mat: vec4<f32>, joints: array<mat3x4<f32>, 8>,"
         ));
         assert_eq!(std::mem::size_of::<HuntLocal>(), 5 * 16 + 8 * 48);
-        assert!(src.contains("lit += locals.rim.xyz * (locals.rim.w * edge * edge);"));
+        assert!(src.contains("var rim_k = edge * edge;"));
+        assert!(src.contains("lit += rim.xyz * (rim.w * rim_k);"));
     }
 }
 
