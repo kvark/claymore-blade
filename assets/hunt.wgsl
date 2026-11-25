@@ -37,6 +37,10 @@ struct VSOut {
     @location(2) normal: vec3<f32>,
     // Material: kind, seed, board radius (tiles), unused. Constant per draw.
     @location(3) mat: vec4<f32>,
+    // Raw mesh position (unit hex prism: radius 1, y 0..1) for the ink edges.
+    @location(4) local: vec4<f32>,
+    // Per-draw rim (rgb, strength) for the per-pixel silhouette edge.
+    @location(5) rim: vec4<f32>,
 };
 
 // Material kinds (`HuntLocal::mat.x`); see `gpu::board::Material`.
@@ -46,7 +50,22 @@ const MAT_STONE: f32 = 3.0;
 const MAT_WATER: f32 = 4.0;
 const MAT_GROUND: f32 = 5.0;
 const MAT_ROCK: f32 = 6.0;
+// Ink hull: a fighter redrawn black, pushed out along its screen-space normal
+// by `mat.y` px and back by `mat.z` depth, so only a thin contour survives.
+const MAT_INK: f32 = 7.0;
 const FOG: vec3<f32> = vec3<f32>(0.010, 0.011, 0.014);
+// C1 grade (Madhouse anime): cold blue-gray shadows, desaturated moss, with
+// blood red the one hue that keeps its chroma. Only the 3D scene runs this;
+// the flat HUD, hex overlays, markers and cut-ins are untouched.
+const GRADE_SAT: f32 = 0.5;
+const GRADE_SHADOW: vec3<f32> = vec3<f32>(0.80, 0.90, 1.12);
+const GRADE_LIGHT: vec3<f32> = vec3<f32>(0.96, 1.0, 1.05);
+// Thin black line art and Clare's cold silver edge.
+const INK: vec3<f32> = vec3<f32>(0.006, 0.007, 0.010);
+const INK_PX: f32 = 0.9;
+const SILVER: vec3<f32> = vec3<f32>(0.90, 0.96, 1.0);
+const STEEL: vec3<f32> = vec3<f32>(0.84, 0.91, 1.0);
+const VIEW: vec3<f32> = vec3<f32>(0.57735027);
 
 fn unpack_joints(raw: u32) -> vec4<u32> {
     return (vec4<u32>(raw) >> vec4<u32>(0u, 8u, 16u, 24u)) & vec4<u32>(0xFFu);
@@ -123,11 +142,18 @@ fn vs_main(v: Vertex) -> VSOut {
         z = 0.9995;
     }
     o.clip = vec4<f32>(ndc_x, ndc_y, z, 1.0);
+    if (abs(locals.mat.x - MAT_INK) < 0.5) {
+        let sn = vec2<f32>((n.x - n.z) * 0.8660254, n.y - (n.x + n.z) * 0.5);
+        let push = sn / max(length(sn), 0.3) * locals.mat.y;
+        o.clip = o.clip + vec4<f32>(push * 2.0 / max(globals.screen.xy, vec2<f32>(1.0)), locals.mat.z, 0.0);
+    }
     o.color = vec4<f32>(lit, 1.0);
     let inv = 1.0 / max(locals.mat.w, 0.0001);
     o.rel = vec4<f32>((p - globals.depth_origin_scale.xyz) * inv, globals.screen.z);
     o.normal = n;
     o.mat = locals.mat;
+    o.local = vec4<f32>(v.pos, 0.0);
+    o.rim = locals.rim;
     return o;
 }
 
@@ -179,11 +205,49 @@ fn terrain_top(kind: f32, uv: vec2<f32>, t: f32) -> vec3<f32> {
     return vec3<f32>(0.7 + 0.25 * n) + vec3<f32>(0.25, 0.30, 0.38) * pow(ripple, 8.0);
 }
 
+fn grade(c: vec3<f32>, keep_from: f32) -> vec3<f32> {
+    let l = dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
+    let tone = mix(GRADE_SHADOW, GRADE_LIGHT, smoothstep(0.02, 0.4, l));
+    let red = clamp((c.r - max(c.g, c.b)) / max(c.r, 0.001), 0.0, 1.0);
+    let keep = smoothstep(keep_from, keep_from + 0.3, red);
+    return mix(vec3<f32>(l), c, mix(GRADE_SAT, 1.0, keep)) * mix(tone, vec3<f32>(1.0), keep);
+}
+
+// 1 on a line `d` units from an edge, fading out over ~INK_PX screen pixels.
+fn ink_line(d: f32, fw: f32) -> f32 {
+    return 1.0 - smoothstep(fw * INK_PX * 0.5, fw * INK_PX * 1.5, d);
+}
+
 @fragment
 fn fs_main(v: VSOut) -> @location(0) vec4<f32> {
     let kind = v.mat.x;
+    // Prism ink edges, measured in raw mesh space. Derivatives are taken here,
+    // before any branch on the material, to stay in uniform control flow.
+    let q = v.local.xz;
+    let hex_d = 0.8660254 - max(abs(q.x), max(abs(0.5 * q.x + 0.8660254 * q.y), abs(-0.5 * q.x + 0.8660254 * q.y)));
+    let top_d = 1.0 - v.local.y;
+    let fw_hex = fwidth(hex_d);
+    let fw_top = fwidth(top_d);
+    // Fighters: a sharp per-pixel rim band inside the ink hull; near-white
+    // rims (Clare) go cold silver, warm / blood rims keep their hue.
+    let edge = 1.0 - abs(dot(normalize(v.normal), VIEW));
+    let fw_edge = fwidth(edge);
+    if (kind > MAT_INK - 0.5) {
+        return vec4<f32>(INK, 1.0);
+    }
     if (kind < 0.5) {
-        return v.color;
+        let rim_hi = max(v.rim.r, max(v.rim.g, v.rim.b));
+        let rim_sat = (rim_hi - min(v.rim.r, min(v.rim.g, v.rim.b))) / max(rim_hi, 0.001);
+        let silver = (1.0 - smoothstep(0.2, 0.4, rim_sat)) * step(0.001, v.rim.w);
+        let band = smoothstep(0.5, 0.5 + max(fw_edge, 0.04), edge) * max(v.rim.w, 0.0);
+        let lit = grade(v.color.xyz, 0.2);
+        // Warm / blood rims: additive glow inside the ink, hue kept.
+        var c = min(lit + v.rim.rgb * band * 0.55, vec3<f32>(1.0));
+        // Silver rim (Clare): roll the over-bright body down to cold steel so
+        // it keeps its shading, then cut a hard cold-white edge inside the ink.
+        let steel = lit / (vec3<f32>(1.0) + lit) * 1.45 * STEEL;
+        c = mix(c, mix(steel, SILVER, min(band, 1.0)), silver);
+        return vec4<f32>(c, 1.0);
     }
     let uv = v.rel.xz + vec2<f32>(v.mat.y * 7.3, v.mat.y * 3.1);
     let dist = length(v.rel.xz);
@@ -201,7 +265,7 @@ fn fs_main(v: VSOut) -> @location(0) vec4<f32> {
         alb += vec3<f32>(0.03, 0.028, 0.025) * grit;
         let pool = 1.0 - smoothstep(radius * 0.6, radius + 6.0, dist);
         let lit = alb * (0.35 + 2.0 * pool);
-        return vec4<f32>(mix(lit, FOG, fog), 1.0);
+        return vec4<f32>(grade(mix(lit, FOG, fog), 0.55), 1.0);
     }
     var m: vec3<f32>;
     if (kind > MAT_ROCK - 0.5) {
@@ -215,7 +279,13 @@ fn fs_main(v: VSOut) -> @location(0) vec4<f32> {
         let n = vnoise(vec2<f32>(v.rel.x + v.rel.z, v.rel.y * 9.0) * 2.0);
         m = vec3<f32>(0.62, 0.55, 0.50) * (0.7 + 0.5 * n);
     }
-    var c = v.color.xyz * m;
+    var ink: f32;
+    if (v.normal.y > 0.5) {
+        ink = ink_line(hex_d, fw_hex);
+    } else {
+        ink = ink_line(top_d, fw_top);
+    }
+    var c = mix(grade(v.color.xyz * m, 0.55), INK, ink * 0.9);
     if (kind > MAT_ROCK - 0.5) {
         c = mix(c, FOG, fog);
     }
