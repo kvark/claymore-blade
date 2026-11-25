@@ -11,6 +11,16 @@ pub(super) const MAT_STONE: f32 = 3.0;
 pub(super) const MAT_WATER: f32 = 4.0;
 pub(super) const MAT_GROUND: f32 = 5.0;
 pub(super) const MAT_ROCK: f32 = 6.0;
+pub(super) const MAT_INK: f32 = 7.0;
+/// C1 line art: fighter contour width (screen px) and the depth push that
+/// keeps the black hull behind the body it outlines.
+pub(super) const INK_HULL_PX: f32 = 1.3;
+pub(super) const INK_HULL_DEPTH: f32 = 0.002;
+
+/// The ink-hull redraw of a fighter: same pose and skin, drawn black.
+pub(super) fn ink_hull(body: HuntLocal) -> HuntLocal {
+    HuntLocal { rim: NO_RIM, mat: [MAT_INK, INK_HULL_PX, INK_HULL_DEPTH, 1.0], ..body }
+}
 
 /// `HuntLocal::mat` for a nest / terrain draw.
 pub(super) fn material(kind: f32, size: f32, combat: &CombatState, seed: f32) -> [f32; 4] {
@@ -169,8 +179,37 @@ mod shader_tests {
             ("MAT_WATER", MAT_WATER),
             ("MAT_GROUND", MAT_GROUND),
             ("MAT_ROCK", MAT_ROCK),
+            ("MAT_INK", MAT_INK),
         ] {
             assert!(src.contains(&format!("const {name}: f32 = {v:.1};")), "{name}");
         }
+    }
+
+    #[test]
+    fn ink_hull_keeps_the_pose_and_draws_black_behind_the_body() {
+        let body = HuntLocal {
+            world: [1.0, 2.0, 3.0, 4.0],
+            color: [0.7, 0.73, 0.78, 4.0],
+            pose: [0.0, 1.0, 0.0, 0.12],
+            rim: [0.85, 0.9, 1.0, 1.6],
+            mat: [0.0; 4],
+            joints: identity_palette(),
+        };
+        let hull = ink_hull(body);
+        assert_eq!((hull.world, hull.color, hull.pose), (body.world, body.color, body.pose));
+        assert_eq!(hull.rim, NO_RIM);
+        assert_eq!(hull.mat[0], MAT_INK);
+        // A thin contour (about a pixel) pushed behind, never in front of, the body.
+        assert!(hull.mat[1] > 0.5 && hull.mat[1] < 2.5 && hull.mat[2] > 0.0 && hull.mat[2] < 0.01);
+    }
+
+    #[test]
+    fn c1_grade_stays_in_the_3d_scene() {
+        // The grade and ink live in hunt.wgsl only: the flat HUD, hex overlays,
+        // tactical markers and cut-ins keep their colours.
+        let hunt = include_str!("../../assets/hunt.wgsl");
+        let flat = include_str!("../../assets/flat.wgsl");
+        assert!(hunt.contains("fn grade(") && hunt.contains("const MAT_INK"));
+        assert!(!flat.contains("grade") && !flat.contains("INK"));
     }
 }

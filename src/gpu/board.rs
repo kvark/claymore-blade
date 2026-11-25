@@ -163,20 +163,18 @@ impl Renderer {
                     clip_u,
                 };
                 rc.bind_vertex(0, buf.into());
-                rc.bind(
-                    1,
-                    &HuntDraw {
-                        locals: HuntLocal {
-                            world: [x, ground, z, scale * body.width],
-                            color: [cr, cg, cb, scale],
-                            pose: [face.cos(), face.sin(), 0.0, mesh_glow],
-                            rim: body.rim,
-                            mat: [0.0; 4],
-                            joints: archive_joint_palette(&pose_in),
-                        },
-                    },
-                );
-                rc.draw(0, count, 0, 1);
+                let locals = HuntLocal {
+                    world: [x, ground, z, scale * body.width],
+                    color: [cr, cg, cb, scale],
+                    pose: [face.cos(), face.sin(), 0.0, mesh_glow],
+                    rim: body.rim,
+                    mat: [0.0; 4],
+                    joints: archive_joint_palette(&pose_in),
+                };
+                for locals in [locals, nest::ink_hull(locals)] {
+                    rc.bind(1, &HuntDraw { locals });
+                    rc.draw(0, count, 0, 1);
+                }
             } else {
                 let bones = pose_fighter(&PoseInput {
                     x,
