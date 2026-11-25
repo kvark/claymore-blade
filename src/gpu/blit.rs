@@ -36,10 +36,11 @@ impl Renderer {
                 self.manga_caption(rc, f.plate_rect(), a, w, h);
             }
             // C2 ink stroke so numbers read on any wash or tile.
+            let x = f.draw_x();
             for [dx, dy] in super::chrome::stroke_offsets(w, h) {
-                self.text_tint(rc, &f.text, f.x + dx, f.y + dy, glyph_h, [0.0, 0.0, 0.0, 0.9 * a]);
+                self.text_tint(rc, &f.text, x + dx, f.y + dy, glyph_h, [0.0, 0.0, 0.0, 0.9 * a]);
             }
-            self.text_tint(rc, &f.text, f.x, f.y, glyph_h, tint);
+            self.text_tint(rc, &f.text, x, f.y, glyph_h, tint);
         }
         if game.fx.flash > 0.02 {
             self.rect(rc, [0.0, 0.0, 1.0, 1.0], [0.92, 0.82, 0.72, game.fx.flash * 0.4]);
