@@ -195,8 +195,11 @@ impl Renderer {
             self.text(&mut rc, &format!("{}  AP {}", u.name, u.ap), card.name[0], card.name[1], card.name[3]);
             self.ink_bar(&mut rc, card.hp, u.hp as f32 / u.max_hp.max(1) as f32, BLOOD, w, h);
             // Trans is danger (open the bar), not a second HP bar — number + band + tint.
-            self.ink_bar(&mut rc, card.trans, u.trans as f32 / 100.0, trans_fill_tint(u.trans), w, h);
-            self.text_tint(&mut rc, &trans_meter_label(u.trans), card.label[0], card.label[1], card.label[3], ASH_TYPE);
+            // Party only: yoma have no yoki bar to open.
+            if u.side == Side::Player {
+                self.ink_bar(&mut rc, card.trans, u.trans as f32 / 100.0, trans_fill_tint(u.trans), w, h);
+                self.text_tint(&mut rc, &trans_meter_label(u.trans), card.label[0], card.label[1], card.label[3], ASH_TYPE);
+            }
         }
         let sel = game.ui.selected_skill.as_deref();
         // Same predicate as input: turn buttons dim while yoma beats / windups play.
@@ -206,7 +209,10 @@ impl Renderer {
         self.ink_btn(&mut rc, bar.raise, "RAISE", false, false, false, live, w, h);
         self.ink_btn(&mut rc, bar.guard, "GUARD", sel == Some("guard"), false, false, live, w, h);
         self.ink_btn(&mut rc, bar.cut, "CUT", sel == Some("cut"), false, false, live, w, h);
-        let slot_id = current_unit(combat)
+        // Enemy beats show the next party member's slot (dimmed), not the
+        // yoma's own unlabeled skill ('?').
+        let slot_unit = current_unit(combat).filter(|u| u.side == Side::Player).or_else(|| next_party_unit(combat));
+        let slot_id = slot_unit
             .and_then(|u| u.skills.get(4))
             .map(|s| s.as_str());
         let slot_label = slot_id
@@ -217,7 +223,7 @@ impl Renderer {
             _ => false,
         };
         let slot_ready = match (
-            current_unit(combat),
+            slot_unit,
             slot_id.and_then(|id| crate::catalog::skill(id)),
         ) {
             (Some(u), Some(skill)) => skill_slot_ready(u.trans, skill.trans),
@@ -228,11 +234,10 @@ impl Renderer {
         // FALL stays lit: forfeit is a retreat, not a turn action, and it is
         // accepted during enemy beats (like Esc-Esc flee).
         self.ink_btn(&mut rc, bar.forfeit, "FALL", false, false, true, true, w, h);
-        let prompt_y = bar.wait.y - 0.028;
-        self.prompt_state(&mut rc, "kenney/prompt/space.png", bar.wait.x + 0.03, prompt_y, 0.028, live);
-        self.prompt_state(&mut rc, "kenney/prompt/1.png", bar.cut.x + 0.035, prompt_y, 0.024, live);
-        self.prompt_state(&mut rc, "kenney/prompt/2.png", bar.guard.x + 0.04, prompt_y, 0.024, live);
-        self.prompt_state(&mut rc, "kenney/prompt/3.png", bar.slot.x + 0.045, prompt_y, 0.024, live);
+        let keys = ["space", "1", "2", "3"];
+        for (k, r) in keys.iter().zip(key_hint_rects(&bar)) {
+            self.prompt_state(&mut rc, &format!("kenney/prompt/{k}.png"), r[0], r[1], r[2], live);
+        }
         if !live && combat.over.is_none() {
             // Enemy phase caption over the dimmed row, plus the fast-forward hint.
             let ff = game.fast_forwarding();
@@ -242,7 +247,8 @@ impl Renderer {
             self.text_tint(&mut rc, text, bar.wait.x + 0.005, trans_meter_label_y(bar.wait.y), 0.011, tint);
         }
         if let Some(line) = combat.log.last() {
-            self.text(&mut rc, &line.text, 0.58, bar.wait.y - 0.018, 0.011);
+            let (x, y, g, s) = log_line(&line.text, &bar);
+            self.text(&mut rc, &s, x, y, g);
         }
         self.text(&mut rc, combat.title.as_str(), 0.02, 0.02, 0.014);
         self.text(&mut rc, "Q / E  ROTATE", 0.72, 0.02, 0.011);
@@ -391,8 +397,49 @@ impl Renderer {
 }
 
 /// Current-chip ring: gold for the party, blood for an enemy beat.
-/// Ink veil laid over a disabled combat button plate (darkens + desaturates).
-pub(crate) const DISABLED_VEIL: [f32; 4] = [0.03, 0.026, 0.022, 0.72];
+/// Ink veil laid over a disabled combat button: plate ink, so it only sinks
+/// the steel frame and scuff band (a dim ink button, not a lighter grey slab).
+pub(crate) const DISABLED_VEIL: [f32; 4] = [chrome::INK[0], chrome::INK[1], chrome::INK[2], 0.55];
+
+/// Next living party member in turn order from the current beat (wrapping)
+/// who owns a slot skill (Clare's FLASH), else the next party member.
+pub(crate) fn next_party_unit(combat: &crate::combat::CombatState) -> Option<&crate::combat::Unit> {
+    let n = combat.order.len();
+    let party = (0..n).filter_map(|i| {
+        let id = &combat.order[(combat.turn + i) % n];
+        combat.units.iter().find(|u| u.id == *id && !u.dead && u.side == Side::Player)
+    });
+    party.clone().find(|u| u.skills.get(4).is_some()).or_else(|| party.clone().next())
+}
+
+/// Key-hint chips `[x, y, w, h]` over WAIT / CUT / GUARD / slot (SPACE, 1, 2, 3).
+pub(crate) fn key_hint_rects(bar: &hud::CombatBar) -> [[f32; 4]; 4] {
+    let y = bar.wait.y - 0.028;
+    [
+        [bar.wait.x + 0.03, y, 0.028, 0.028],
+        [bar.cut.x + 0.035, y, 0.024, 0.024],
+        [bar.guard.x + 0.04, y, 0.024, 0.024],
+        [bar.slot.x + 0.045, y, 0.024, 0.024],
+    ]
+}
+
+/// Combat log line: right of the slot's key hint up to FALL's right edge,
+/// clipped to whole glyphs (it ran under the '3' chip). `(x, y, glyph_h, text)`.
+pub(crate) fn log_line(text: &str, bar: &hud::CombatBar) -> (f32, f32, f32, String) {
+    const GLYPH_H: f32 = 0.011;
+    let k = key_hint_rects(bar)[3];
+    let x = k[0] + k[2] + 0.012;
+    let room = bar.forfeit.x + bar.forfeit.w - x;
+    let adv = GLYPH_H * 0.7 * 0.85;
+    let fit = (((room - GLYPH_H * 0.7) / adv).floor() as usize + 1).max(1);
+    let n = text.chars().count();
+    let s = if n <= fit {
+        text.to_string()
+    } else {
+        text.chars().take(fit.saturating_sub(2)).collect::<String>() + ".."
+    };
+    (x, bar.wait.y - 0.018, GLYPH_H, s)
+}
 /// Dim ash for a disabled button label.
 pub(crate) const DISABLED_TYPE: [f32; 4] = [0.40, 0.38, 0.36, 0.62];
 /// Dim key-hint chip tint while turn input is blocked.
@@ -547,6 +594,47 @@ mod tests {
         board_portrait_rect, mesh_hp_bar, portrait_hp_bar, queue_chip_label, queue_ids, skill_slot_ready, trans_band,
         trans_fill_tint, trans_meter_label, trans_meter_label_y, unit_card,
     };
+
+    #[test]
+    fn log_line_clears_key_hints_and_buttons_and_clips() {
+        let bar = crate::hud::combat_bar();
+        let hits = |a: [f32; 4], b: [f32; 4]| {
+            a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3]
+        };
+        let long = "CLARE CUTS THE LONG-ARM YOMA FOR A SOLID FOURTEEN AND IT STAGGERS BACK";
+        for text in ["YOMA ADVANCES", "YOMA GLANCES RAKI FOR 14.", long] {
+            // Layout is in normalized units, so one check covers 390x844..1920x1080.
+            let (x, y, g, s) = super::log_line(text, &bar);
+            let n = s.chars().count() as f32;
+            let r = [x, y, g * 0.7 * ((n - 1.0) * 0.85 + 1.0), g];
+            for k in super::key_hint_rects(&bar) {
+                assert!(!hits(r, k), "{text} under a key hint");
+            }
+            for b in [bar.wait, bar.raise, bar.guard, bar.cut, bar.slot, bar.forfeit] {
+                assert!(!hits(r, b.pos()), "{text} on a button");
+            }
+            assert!(r[0] + r[2] <= bar.forfeit.x + bar.forfeit.w + 1e-6, "{text} past FALL");
+            assert!(s == text || (s.ends_with("..") && text.starts_with(&s[..s.len() - 2])));
+        }
+        assert_eq!(super::log_line("YOMA ADVANCES", &bar).3, "YOMA ADVANCES");
+    }
+
+    #[test]
+    fn disabled_veil_sinks_ink_and_never_greys_it() {
+        let v = super::DISABLED_VEIL;
+        assert!(v[0] <= super::chrome::INK[0] + 1e-6 && v[1] <= super::chrome::INK[1] + 1e-6 && v[3] < 0.8);
+    }
+
+    #[test]
+    fn enemy_beats_show_the_next_party_slot() {
+        use crate::combat::create_battle;
+        let mut c = create_battle(crate::catalog::encounter("paburo-nest").unwrap(), &["clare".into(), "raki".into()], 7);
+        let yoma = c.order.iter().position(|id| c.units.iter().any(|u| u.id == *id && u.side == Side::Enemy)).unwrap();
+        c.turn = yoma;
+        let u = super::next_party_unit(&c).expect("party");
+        assert_eq!(u.side, Side::Player);
+        assert_eq!(u.skills.get(4).map(|s| s.to_ascii_uppercase()).as_deref(), Some("FLASH"));
+    }
     use crate::combat::{Side, Stats, Unit};
     use crate::hex::Axial;
 
