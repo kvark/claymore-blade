@@ -197,8 +197,10 @@ impl Renderer {
             // WAIT / RAISE), so HP, trans and the BAR N BAND label all read.
             let card = unit_card(bar.wait.y);
             self.rect(&mut rc, card.plate, chrome::INK);
-            self.steel_frame(&mut rc, card.plate, w, h);
+            self.tone_shade(&mut rc, card.plate, 0.35, chrome::TONE_ASH, w, h);
+            self.ink_panel(&mut rc, card.plate, w, h);
             self.blit(&mut rc, self.tex(&u.portrait), card.portrait, [1.0; 4]);
+            self.tone_shade(&mut rc, card.portrait, 0.45, chrome::TONE_INK, w, h);
             self.steel_frame(&mut rc, card.portrait, w, h);
             self.text(&mut rc, &format!("{}  AP {}", u.name, u.ap), card.name[0], card.name[1], card.name[3]);
             self.ink_bar(&mut rc, card.hp, u.hp as f32 / u.max_hp.max(1) as f32, BLOOD, w, h);
@@ -245,6 +247,8 @@ impl Renderer {
             // Enemy phase caption over the dimmed row, plus the fast-forward hint.
             let ff = game.fast_forwarding();
             let (text, tint) = enemy_phase_caption(ff);
+            let (cx, cy) = (bar.wait.x + 0.005, trans_meter_label_y(bar.wait.y));
+            self.manga_caption(&mut rc, chrome::caption_plate(text, cx, cy, 0.011), 1.0, w, h);
             self.text_tint(&mut rc, text, bar.wait.x + 0.005, trans_meter_label_y(bar.wait.y), 0.011, tint);
         }
         if let Some(line) = combat.log.last() {
@@ -360,7 +364,8 @@ impl Renderer {
         // Ink plate behind the strip (existing HUD language).
         let plate = [start_x - 0.012, Y - 0.010, total_w + 0.024, CHIP_H + 0.028];
         self.rect(rc, plate, chrome::INK);
-        self.steel_frame(rc, plate, w, h);
+        self.tone_shade(rc, plate, 0.35, chrome::TONE_ASH, w, h);
+        self.ink_panel(rc, plate, w, h);
         for (i, id) in show.iter().enumerate() {
             let Some(u) = combat.units.iter().find(|u| u.id == **id) else {
                 continue;
@@ -383,6 +388,7 @@ impl Renderer {
                 [0.92, 0.55, 0.48, 1.0]
             };
             self.blit(rc, self.tex(&u.portrait), portrait, tint);
+            self.tone_shade(rc, portrait, 0.4, chrome::TONE_INK, w, h);
             let label = queue_chip_label(&u.name);
             let glyph_h = 0.009;
             let glyph_w = glyph_h * 0.7;

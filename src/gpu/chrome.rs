@@ -18,7 +18,102 @@ pub(crate) const SPLASH_RED: [f32; 3] = [0.50, 0.008, 0.012];
 /// Kill-only impact wash over the whole scene (frame 0); plain SOLIDs skip it.
 pub(crate) const KILL_WASH: [f32; 4] = [0.16, 0.0, 0.004, 0.09];
 
+/// C2 manga panel: bone hairline inset inside the steel edge, leaving a
+/// thick black frame between them, with the top-right corner cut at 45°.
+pub(crate) const PANEL_LINE: [f32; 4] = [0.40, 0.38, 0.35, 0.85];
+pub(crate) const PANEL_INSET_PX: f32 = 3.0;
+pub(crate) const PANEL_CUT_PX: f32 = 8.0;
+/// Screentone dots: ash on the black panels, ink over portraits.
+pub(crate) const TONE_ASH: [f32; 4] = [0.032, 0.032, 0.036, 0.75];
+pub(crate) const TONE_INK: [f32; 4] = [0.0, 0.0, 0.0, 0.8];
+/// Tone band (rect heights) and peak dot coverage for HUD shading.
+pub(crate) const HUD_TONE_BAND: f32 = 0.3;
+pub(crate) const HUD_TONE_COVER: f32 = 0.5;
+
+/// Screentone over the bottom `frac` of `r`: `(pos, uv, tone)` for
+/// `tone_rect`. Dots are densest on the bottom edge and fade to nothing at
+/// the strip top; the uv window is narrow in x so the sides never thicken.
+pub(crate) fn tone_strip(r: [f32; 4], frac: f32, w: f32, h: f32) -> ([f32; 4], [f32; 4], [f32; 4]) {
+    let sh = r[3] * frac.clamp(0.05, 1.0);
+    let pos = [r[0], r[1] + r[3] - sh, r[2], sh];
+    let uv_h = HUD_TONE_BAND / 3.0; // flat.wgsl bottom band is a third as deep
+    let uv = [0.49, 1.0 - uv_h, 0.02, uv_h];
+    let aspect = (pos[2] * w / uv[2]) / (pos[3] * h / uv[3]).max(1e-3);
+    let pitch = crate::game::beats::tone_pitch(h);
+    (pos, uv, [pitch, HUD_TONE_COVER, HUD_TONE_BAND, aspect])
+}
+
+/// Normalized `[x, y, w, h]` ink plate behind a caption line (same metrics
+/// as `Floater::plate_rect`).
+pub(crate) fn caption_plate(text: &str, x: f32, y: f32, glyph_h: f32) -> [f32; 4] {
+    let n = text.chars().filter(|c| *c != '\n').count() as f32;
+    let text_w = if n > 0.0 { glyph_h * 0.7 * ((n - 1.0) * 0.85 + 1.0) } else { 0.0 };
+    let (pad_x, pad_y) = (0.010, 0.006);
+    [x - pad_x, y - pad_y, text_w + pad_x * 2.0, glyph_h + pad_y * 2.0]
+}
+
 impl Renderer {
+    /// C2 manga panel frame around an ink plate `r`: steel edge, black gap,
+    /// bone inner hairline with a 45° cut corner (top right).
+    pub(super) fn ink_panel(
+        &self,
+        rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>,
+        r: [f32; 4],
+        w: f32,
+        h: f32,
+    ) {
+        self.steel_frame(rc, r, w, h);
+        let (px, py) = (1.0 / w.max(1.0), 1.0 / h.max(1.0));
+        let (ix, iy) = (PANEL_INSET_PX * px, PANEL_INSET_PX * py);
+        let i = [r[0] + ix, r[1] + iy, r[2] - 2.0 * ix, r[3] - 2.0 * iy];
+        let (cx, cy) = (PANEL_CUT_PX * px, PANEL_CUT_PX * py);
+        self.rect(rc, [i[0], i[1], i[2] - cx, py], PANEL_LINE);
+        self.rect(rc, [i[0], i[1] + i[3] - py, i[2], py], PANEL_LINE);
+        self.rect(rc, [i[0], i[1], px, i[3]], PANEL_LINE);
+        self.rect(rc, [i[0] + i[2] - px, i[1] + cy, px, i[3] - cy], PANEL_LINE);
+        for k in 0..PANEL_CUT_PX as usize {
+            let k = k as f32;
+            self.rect(rc, [i[0] + i[2] - cx + k * px, i[1] + k * py, px, py], PANEL_LINE);
+        }
+    }
+
+    /// Screentone shading over the bottom `frac` of `r` (screen-locked dots).
+    pub(super) fn tone_shade(
+        &self,
+        rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>,
+        r: [f32; 4],
+        frac: f32,
+        tint: [f32; 4],
+        w: f32,
+        h: f32,
+    ) {
+        let (pos, uv, tone) = tone_strip(r, frac, w, h);
+        self.tone_rect(rc, pos, uv, tint, tone);
+    }
+
+    /// Manga caption backing: a black brush bar tapering past the plate, a
+    /// 2 px ink stroke, the ink plate and bone hairlines top and bottom.
+    pub(super) fn manga_caption(
+        &self,
+        rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>,
+        p: [f32; 4],
+        alpha: f32,
+        w: f32,
+        h: f32,
+    ) {
+        let (px, py) = (1.0 / w.max(1.0), 1.0 / h.max(1.0));
+        let cy = p[1] + p[3] * 0.5;
+        for (k, ext) in [(0.7, 8.0), (0.4, 16.0), (0.18, 26.0)] {
+            let bh = p[3] * k;
+            self.rect(rc, [p[0] - ext * px, cy - bh * 0.5, p[2] + 2.0 * ext * px, bh], [0.0, 0.0, 0.0, 0.85 * alpha]);
+        }
+        self.rect(rc, [p[0] - 2.0 * px, p[1] - 2.0 * py, p[2] + 4.0 * px, p[3] + 4.0 * py], [0.0, 0.0, 0.0, 0.95 * alpha]);
+        self.rect(rc, p, [INK[0], INK[1], INK[2], 0.96 * alpha]);
+        let line = [PANEL_LINE[0], PANEL_LINE[1], PANEL_LINE[2], PANEL_LINE[3] * alpha];
+        self.rect(rc, [p[0] + 2.0 * px, p[1] + 2.0 * py, p[2] - 4.0 * px, py], line);
+        self.rect(rc, [p[0] + 2.0 * px, p[1] + p[3] - 3.0 * py, p[2] - 4.0 * px, py], line);
+    }
+
     /// Bevelled steel frame one pixel wide around `r` (normalized coords).
     pub(super) fn steel_frame(
         &self,
@@ -236,6 +331,32 @@ mod tests {
 
     fn luma(c: [f32; 4]) -> f32 {
         0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+    }
+
+    #[test]
+    fn hud_tone_shades_only_the_bottom_of_its_rect() {
+        let card = super::super::combat_ui::unit_card(0.86);
+        for (w, h) in [(390.0, 844.0), (1280.0, 800.0), (1920.0, 1080.0)] {
+            for r in [card.plate, card.portrait] {
+                let (pos, uv, tone) = tone_strip(r, 0.45, w, h);
+                // Inside the rect, flush with its bottom edge.
+                assert!(pos[0] == r[0] && pos[2] == r[2] && pos[1] >= r[1]);
+                assert!((pos[1] + pos[3] - (r[1] + r[3])).abs() < 1e-6);
+                // uv ends on the bottom edge (densest) and starts where the
+                // flat.wgsl bottom band (x3) reaches zero coverage.
+                assert!((uv[1] + uv[3] - 1.0).abs() < 1e-6);
+                assert!(((1.0 - uv[1]) * 3.0 - tone[2]).abs() < 1e-5);
+                // Sides never thicken: x edge distance (>= 0.49 of the full
+                // rect, in rect heights) stays past the band.
+                assert!(0.49 * tone[3] >= tone[2], "{w}x{h} aspect {}", tone[3]);
+                // Dots never merge; pitch whole screen pixels >= 4.
+                assert!(0.56 * tone[1].sqrt() < 0.5 && tone[0] >= 4.0);
+            }
+        }
+        // Caption plate wraps the glyph run with padding.
+        let p = caption_plate("YOMA REACHES", 0.5, 0.72, 0.016);
+        assert!(p[0] < 0.5 && p[1] < 0.72 && p[0] + p[2] > 0.5 + 0.016 * 0.7 * 11.0 * 0.85);
+        assert!(PANEL_LINE[0] > INK[0] * 20.0, "bone hairline reads on ink");
     }
 
     #[test]
