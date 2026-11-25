@@ -38,6 +38,17 @@ pub(super) fn torch(combat: &CombatState, size: f32, yaw: u8) -> [f32; 4] {
     }
 }
 
+/// Peak torch-radius wobble (fraction of the radius).
+pub(super) const TORCH_FLICKER: f32 = 0.035;
+
+/// Torch pool radius multiplier at `time`: two slow, incommensurate sines
+/// (~0.2 Hz and ~0.5 Hz), so the light breathes without strobing. Pure
+/// function of time; no effect on rules or timing.
+pub(super) fn torch_flicker(time: f32) -> f32 {
+    let w = 0.6 * (1.3 * time).sin() + 0.4 * (3.1 * time + 1.7).sin();
+    1.0 + TORCH_FLICKER * w
+}
+
 /// The ink-hull redraw of a fighter: same pose and skin, drawn black.
 pub(super) fn ink_hull(body: HuntLocal) -> HuntLocal {
     HuntLocal { rim: NO_RIM, mat: [MAT_INK, INK_HULL_PX, INK_HULL_DEPTH, 1.0], ..body }
@@ -222,6 +233,25 @@ mod shader_tests {
         assert_eq!(hull.mat[0], MAT_INK);
         // A thin contour (about a pixel) pushed behind, never in front of, the body.
         assert!(hull.mat[1] > 0.5 && hull.mat[1] < 2.5 && hull.mat[2] > 0.0 && hull.mat[2] < 0.01);
+    }
+
+    #[test]
+    fn torch_flicker_is_a_small_slow_deterministic_wobble() {
+        let mut lo = f32::MAX;
+        let mut hi = f32::MIN;
+        let mut prev = torch_flicker(0.0);
+        for i in 0..2000 {
+            let t = i as f32 / 60.0;
+            let f = torch_flicker(t);
+            assert_eq!(f, torch_flicker(t));
+            assert!((f - 1.0).abs() <= TORCH_FLICKER + 1e-6);
+            // Low frequency: under 0.4% radius change per 60 Hz frame.
+            assert!((f - prev).abs() < 0.004, "t={t}");
+            prev = f;
+            lo = lo.min(f);
+            hi = hi.max(f);
+        }
+        assert!(hi - lo > TORCH_FLICKER, "visible but subtle: {lo}..{hi}");
     }
 
     #[test]

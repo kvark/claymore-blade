@@ -35,7 +35,10 @@ impl Renderer {
                     lamp0c,
                     lamp1,
                     lamp1c,
-                    torch: nest::torch(combat, size, yaw),
+                    torch: {
+                        let [x, z, r, s] = nest::torch(combat, size, yaw);
+                        [x, z, r * nest::torch_flicker(game.fx.time), s]
+                    },
                 },
             },
         );

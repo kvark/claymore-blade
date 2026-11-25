@@ -154,6 +154,31 @@ impl Renderer {
         uv: [f32; 4],
         tint: [f32; 4],
     ) {
+        self.blit_toned(rc, view, sampler, pos, uv, tint, [0.0; 4]);
+    }
+
+    /// C2 cut-in screentone: an ink dot grid over `pos`, denser toward its edges.
+    pub(super) fn tone_rect(
+        &self,
+        rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>,
+        pos: [f32; 4],
+        tint: [f32; 4],
+        tone: [f32; 4],
+    ) {
+        self.blit_toned(rc, self.white.view, self.sampler, pos, [0.0, 0.0, 1.0, 1.0], tint, tone);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn blit_toned(
+        &self,
+        rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>,
+        view: gpu::TextureView,
+        sampler: gpu::Sampler,
+        pos: [f32; 4],
+        uv: [f32; 4],
+        tint: [f32; 4],
+        tone: [f32; 4],
+    ) {
         rc.bind(
             0,
             &FlatFrame {
@@ -169,6 +194,7 @@ impl Renderer {
                     pos_size: pos,
                     uv_rect: uv,
                     tint,
+                    tone,
                 },
             },
         );
@@ -211,6 +237,7 @@ impl Renderer {
                         pos_size: [cx, y, glyph_w, glyph_h],
                         uv_rect: [u, v, du, dv],
                         tint,
+                        tone: [0.0; 4],
                     },
                 },
             );
