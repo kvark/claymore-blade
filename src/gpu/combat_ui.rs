@@ -192,13 +192,16 @@ impl Renderer {
             self.blit_portrait(&mut rc, self.tex(&u.portrait), card.portrait, u.side, [1.0; 4]);
             self.tone_shade(&mut rc, card.portrait, 0.45, chrome::TONE_INK, w, h);
             self.steel_frame(&mut rc, card.portrait, w, h);
-            self.text(&mut rc, &format!("{}  AP {}", u.name, u.ap), card.name[0], card.name[1], card.name[3]);
+            let name = format!("{}  AP {}", u.name, u.ap);
+            self.text(&mut rc, &name, card.name[0], card.name[1], crate::font::fit(&name, card.name[3], card.name[2]));
             self.ink_bar(&mut rc, card.hp, u.hp as f32 / u.max_hp.max(1) as f32, BLOOD, w, h);
             // Trans is danger (open the bar), not a second HP bar — number + band + tint.
             // Party only: yoma have no yoki bar to open.
             if u.side == Side::Player {
                 self.ink_bar(&mut rc, card.trans, u.trans as f32 / 100.0, trans_fill_tint(u.trans), w, h);
-                self.text_tint(&mut rc, &trans_meter_label(u.trans), card.label[0], card.label[1], card.label[3], ASH_TYPE);
+                let label = trans_meter_label(u.trans);
+                let g = crate::font::fit(&label, card.label[3], card.label[2]);
+                self.text_tint(&mut rc, &label, card.label[0], card.label[1], g, ASH_TYPE);
             }
         }
         let sel = game.ui.selected_skill.as_deref();
@@ -382,14 +385,8 @@ impl Renderer {
             self.blit_portrait(rc, self.tex(&u.portrait), portrait, u.side, [1.0; 4]);
             self.tone_shade(rc, portrait, 0.4, chrome::TONE_INK, w, h);
             let label = queue_chip_label(&u.name);
-            let glyph_h = 0.009;
-            let glyph_w = glyph_h * 0.7;
-            let nch = label.chars().count() as f32;
-            let text_w = if nch > 0.0 {
-                glyph_w * ((nch - 1.0) * 0.85 + 1.0)
-            } else {
-                0.0
-            };
+            let glyph_h = crate::font::fit(&label, 0.009, CHIP_W);
+            let text_w = crate::font::text_w(&label, glyph_h);
             let tx = x + (CHIP_W - text_w) * 0.5;
             let ty = Y + CHIP_H * 0.78;
             self.text_tint(rc, &label, tx, ty, glyph_h, ASH_TYPE);
@@ -431,8 +428,8 @@ pub(crate) fn log_line(text: &str, bar: &hud::CombatBar) -> (f32, f32, f32, Stri
     let k = key_hint_rects(bar)[3];
     let x = k[0] + k[2] + 0.012;
     let room = bar.forfeit.x + bar.forfeit.w - x;
-    let adv = GLYPH_H * 0.7 * 0.85;
-    let fit = (((room - GLYPH_H * 0.7) / adv).floor() as usize + 1).max(1);
+    let gw = crate::font::glyph_w(GLYPH_H);
+    let fit = (((room - gw) / (gw * crate::font::ADVANCE)).floor() as usize + 1).max(1);
     let n = text.chars().count();
     let s = if n <= fit {
         text.to_string()

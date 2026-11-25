@@ -31,6 +31,7 @@ impl Renderer {
     ) {
         let w = self.screen.width.max(1) as f32;
         let h = self.screen.height.max(1) as f32;
+        crate::font::set_screen(w, h);
         if let mut pass = encoder.render(
             "hunt",
             gpu::RenderTargetSet {

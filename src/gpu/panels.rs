@@ -10,9 +10,10 @@ impl Renderer {
         self.blit_toned(&mut rc, self.tex("art/title.jpg"), self.sampler, full, full, [1.0; 4], chrome::RESULT_ART_TONE);
         self.tone_shade(&mut rc, full, 0.3, chrome::TONE_INK, w, h);
         self.ink_plate(&mut rc, chrome::RESULT_PLATE, w, h);
-        self.text(&mut rc, &game.result_title, 0.12, 0.34, 0.022);
+        let fit = |s: &str, g: f32| chrome::plate_text_h(s, g, chrome::RESULT_PLATE, 0.12);
+        self.text(&mut rc, &game.result_title, 0.12, 0.34, fit(&game.result_title, 0.022));
         self.rect(&mut rc, [0.12, 0.34 + 0.022 + 0.014, 0.30, 2.0 / h], chrome::BLOOD_INK);
-        self.text_tint(&mut rc, &game.result_body, 0.12, 0.44, 0.014, chrome::ASH_BODY);
+        self.text_tint(&mut rc, &game.result_body, 0.12, 0.44, fit(&game.result_body, 0.014), chrome::ASH_BODY);
         self.ink_btn(&mut rc, hud::result_ok(), "RETURN", false, false, false, true, w, h);
         self.draw_fx(&mut rc, game);
     }
@@ -63,12 +64,14 @@ impl Renderer {
         if let Some(scene) = game.scene.as_ref() {
             if let Some(line) = scene.current() {
                 if !line.speaker.is_empty() {
-                    self.text(&mut rc, line.speaker, 0.12, 0.28, 0.016);
-                    let u = chrome::caption_plate(line.speaker, 0.12, 0.28, 0.016);
+                    let g = chrome::plate_text_h(line.speaker, 0.016, chrome::SCENE_PLATE, 0.12);
+                    self.text(&mut rc, line.speaker, 0.12, 0.28, g);
+                    let u = chrome::caption_plate(line.speaker, 0.12, 0.28, g);
                     self.rect(&mut rc, [0.12, 0.28 + 0.016 + 0.010, u[2] + 0.010, 2.0 / h], chrome::BLOOD_INK);
                 }
                 // wrap-ish: single line may be long; draw once
-                self.text_tint(&mut rc, line.text, 0.12, 0.38, 0.014, chrome::ASH_BODY);
+                let g = chrome::plate_text_h(line.text, 0.014, chrome::SCENE_PLATE, 0.12);
+                self.text_tint(&mut rc, line.text, 0.12, 0.38, g, chrome::ASH_BODY);
                 let step = format!("{}/{}", scene.step + 1, scene.lines().len());
                 self.text_tint(&mut rc, &step, 0.12, 0.52, 0.011, chrome::ASH_BODY);
             }

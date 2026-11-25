@@ -58,8 +58,7 @@ pub(crate) fn tone_strip(r: [f32; 4], frac: f32, w: f32, h: f32) -> ([f32; 4], [
 /// Normalized `[x, y, w, h]` ink plate behind a caption line (same metrics
 /// as `Floater::plate_rect`).
 pub(crate) fn caption_plate(text: &str, x: f32, y: f32, glyph_h: f32) -> [f32; 4] {
-    let n = text.chars().filter(|c| *c != '\n').count() as f32;
-    let text_w = if n > 0.0 { glyph_h * 0.7 * ((n - 1.0) * 0.85 + 1.0) } else { 0.0 };
+    let text_w = crate::font::text_w(text, glyph_h);
     let (pad_x, pad_y) = (0.010, 0.006);
     [x - pad_x, y - pad_y, text_w + pad_x * 2.0, glyph_h + pad_y * 2.0]
 }
@@ -67,8 +66,13 @@ pub(crate) fn caption_plate(text: &str, x: f32, y: f32, glyph_h: f32) -> [f32; 4
 /// Ink button label size: 0.024 tall, shrunk so long labels (scene choices
 /// like WALK WITH US) keep a margin inside the plate instead of spilling.
 pub(crate) fn btn_glyph_h(label: &str, w: f32) -> f32 {
-    let n = label.chars().count().max(1) as f32;
-    0.024f32.min(w * 0.88 / (0.7 * ((n - 1.0) * 0.85 + 1.0)))
+    crate::font::fit(label, 0.024, w * 0.88)
+}
+
+/// Glyph height for text set at `x` inside `plate`, shrunk to keep a 0.02
+/// right margin (narrow screens widen the type; see `font::glyph_scale`).
+pub(crate) fn plate_text_h(text: &str, glyph_h: f32, plate: [f32; 4], x: f32) -> f32 {
+    crate::font::fit(text, glyph_h, plate[0] + plate[2] - 0.02 - x)
 }
 
 /// Story-scene dialogue plate `[x, y, w, h]` (speaker, line, step count).
@@ -222,13 +226,7 @@ impl Renderer {
             }
         }
         let glyph_h = btn_glyph_h(label, r.w);
-        let glyph_w = glyph_h * 0.7;
-        let n = label.chars().count() as f32;
-        let text_w = if n > 0.0 {
-            glyph_w * ((n - 1.0) * 0.85 + 1.0)
-        } else {
-            0.0
-        };
+        let text_w = crate::font::text_w(label, glyph_h);
         let tx = r.x + (r.w - text_w) * 0.5;
         let ty = r.y + (r.h - glyph_h) * 0.5;
         if !enabled {
@@ -373,6 +371,32 @@ pub(crate) fn stroke_offsets(w: f32, h: f32) -> [[f32; 2]; 8] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn key_strings_fit_their_rects_on_a_390x844_phone() {
+        crate::font::set_screen(390.0, 844.0);
+        let inside = |s: &str, x: f32, g: f32, r: [f32; 4]| x >= r[0] && x + crate::font::text_w(s, g) <= r[0] + r[2] + 1e-6;
+        let bar = crate::hud::combat_bar();
+        for (r, s) in [(bar.wait, "WAIT"), (bar.raise, "RAISE"), (bar.guard, "GUARD"), (bar.cut, "CUT"), (bar.slot, "FLASH"), (bar.forfeit, "FALL")]
+            .into_iter()
+            .chain([(crate::hud::scene_yes(), "WALK WITH US"), (crate::hud::scene_no(), "NOT YET"), (crate::hud::result_ok(), "RETURN")])
+        {
+            let g = btn_glyph_h(s, r.w);
+            assert!(inside(s, r.x + (r.w - crate::font::text_w(s, g)) * 0.5, g, r.pos()), "{s}");
+        }
+        let body = crate::dialog::RESULT_WIN_BODY;
+        assert!(inside(body, 0.12, plate_text_h(body, 0.014, RESULT_PLATE, 0.12), RESULT_PLATE));
+        let line = "THE ORGANIZATION WILL NOT MOURN EITHER CHOICE.";
+        assert!(inside(line, 0.12, plate_text_h(line, 0.014, SCENE_PLATE, 0.12), SCENE_PLATE));
+        let (x, _, g, s) = super::super::combat_ui::log_line("YOMA GLANCES RAKI FOR 14. IT STAGGERS BACK", &bar);
+        assert!(x + crate::font::text_w(&s, g) <= bar.forfeit.x + bar.forfeit.w + 1e-6);
+        let card = super::super::combat_ui::unit_card(bar.wait.y);
+        let name = "DENEVE  AP 4";
+        assert!(inside(name, card.name[0], crate::font::fit(name, card.name[3], card.name[2]), card.name));
+        // Type keeps its designed aspect: phone glyphs are just smaller.
+        assert!(crate::font::glyph_draw_h(0.024) * 844.0 > 9.0);
+        crate::font::set_screen(1280.0, 800.0);
+    }
 
     #[test]
     fn scene_plate_and_choice_labels_fit() {

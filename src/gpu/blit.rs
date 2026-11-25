@@ -99,13 +99,7 @@ impl Renderer {
             steel[3] = 0.22;
             self.rect(rc, r.pos(), steel);
         }
-        let glyph_w = glyph_h * 0.7;
-        let n = label.chars().filter(|c| *c != '\n').count() as f32;
-        let text_w = if n > 0.0 {
-            glyph_w * ((n - 1.0) * 0.85 + 1.0)
-        } else {
-            0.0
-        };
+        let text_w = crate::font::text_w(label, glyph_h);
         let tx = r.x + (r.w - text_w) * 0.5;
         let ty = r.y + (r.h - glyph_h) * 0.5;
         if !enabled {
@@ -231,7 +225,10 @@ impl Renderer {
     }
 
     pub(super) fn text_tint(&self, rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>, s: &str, x: f32, y: f32, glyph_h: f32, tint: [f32; 4]) {
-        let glyph_w = glyph_h * 0.7;
+        // Designed glyph aspect on any screen; drawn centered in the nominal box.
+        let glyph_w = crate::font::glyph_w(glyph_h);
+        let draw_h = crate::font::glyph_draw_h(glyph_h);
+        let y = y + (glyph_h - draw_h) * 0.5;
         rc.bind(
             0,
             &FlatFrame {
@@ -254,7 +251,7 @@ impl Renderer {
                 1,
                 &FlatDraw {
                     locals: FlatLocal {
-                        pos_size: [cx, y, glyph_w, glyph_h],
+                        pos_size: [cx, y, glyph_w, draw_h],
                         uv_rect: [u, v, du, dv],
                         tint,
                         tone: [0.0; 4],
