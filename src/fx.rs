@@ -31,20 +31,34 @@ pub struct Floater {
     pub plate: bool,
 }
 
+/// Horizontal plate padding around floater text.
+const FLOATER_PAD_X: f32 = 0.010;
+/// Keep-clear margin between a floater (plate included) and the screen edge.
+const FLOATER_EDGE: f32 = 0.010;
+
 impl Floater {
-    /// Glyph height this frame (floaters pop a little as they fade).
+    /// Glyph height this frame (floaters pop a little as they fade), shrunk
+    /// so the text and its plate always fit across the screen.
     pub fn glyph_h(&self) -> f32 {
         let a = (self.life / self.max).clamp(0.0, 1.0);
-        0.016 * (1.0 + (1.0 - a) * 0.25)
+        let pop = 0.016 * (1.0 + (1.0 - a) * 0.25);
+        crate::font::fit(&self.text, pop, 1.0 - 2.0 * (FLOATER_EDGE + FLOATER_PAD_X))
+    }
+
+    /// Left edge of the text, shifted so text and plate stay on screen.
+    pub fn draw_x(&self) -> f32 {
+        let text_w = crate::font::text_w(&self.text, self.glyph_h());
+        let lo = FLOATER_EDGE + FLOATER_PAD_X;
+        let hi = (1.0 - lo - text_w).max(lo);
+        self.x.clamp(lo, hi)
     }
 
     /// Normalized `[x, y, w, h]` of the ink plate behind a plated hint.
     pub fn plate_rect(&self) -> [f32; 4] {
         let glyph_h = self.glyph_h();
         let text_w = crate::font::text_w(&self.text, glyph_h);
-        let pad_x = 0.010;
         let pad_y = 0.006;
-        [self.x - pad_x, self.y - pad_y, text_w + pad_x * 2.0, glyph_h + pad_y * 2.0]
+        [self.draw_x() - FLOATER_PAD_X, self.y - pad_y, text_w + FLOATER_PAD_X * 2.0, glyph_h + pad_y * 2.0]
     }
 }
 
@@ -437,6 +451,31 @@ impl Fx {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn long_floaters_stay_on_screen_at_every_size() {
+        for (w, h) in [(390.0, 844.0), (1280.0, 800.0), (1920.0, 1080.0)] {
+            crate::font::set_screen(w, h);
+            let mut fx = Fx::default();
+            fx.emit_hint(0.97, 0.4, "THE YOMA SLIPS PAST THE RUINS TOWARD THE WELL");
+            fx.emit_hint(-0.2, 0.5, "WALK CLOSER");
+            fx.emit_outcome(0.99, 0.5, "glance", 3);
+            fx.emit_heal(0.995, 0.6, 12);
+            for f in fx.floaters.iter_mut() {
+                for life in [f.max, 0.0] {
+                    f.life = life;
+                    let [x, _, pw, _] = f.plate_rect();
+                    let tx = f.draw_x();
+                    let tw = crate::font::text_w(&f.text, f.glyph_h());
+                    assert!(x >= 0.0 && x + pw <= 1.0, "{w}x{h} {:?} plate {x}+{pw}", f.text);
+                    assert!(tx >= 0.0 && tx + tw <= 1.0, "{w}x{h} {:?} text {tx}+{tw}", f.text);
+                }
+            }
+            let mid = Floater { x: 0.4, y: 0.5, vy: 0.0, life: 1.0, max: 1.0, text: "OK".into(), tint: [1.0; 4], plate: false };
+            assert_eq!(mid.draw_x(), 0.4, "short centred floaters do not move");
+        }
+        crate::font::set_screen(1280.0, 800.0);
+    }
 
     #[test]
     fn trauma_decays() {

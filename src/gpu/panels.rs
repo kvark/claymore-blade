@@ -1,4 +1,10 @@
 use super::*;
+use crate::font;
+
+/// Codex title banner rect.
+const CODEX_BANNER: [f32; 4] = [0.06, 0.05, 0.4, 0.08];
+/// Text width inside a 0.20-wide Codex card (0.02 inset each side).
+const CODEX_TEXT_W: f32 = 0.16;
 
 impl Renderer {
     pub(super) fn draw_result(&self, pass: &mut gpu::RenderCommandEncoder, game: &Game, w: f32, h: f32) {
@@ -24,10 +30,10 @@ impl Renderer {
         self.blit_px(
             &mut rc,
             self.tex("kenney/ui/banner.png"),
-            [0.06, 0.05, 0.4, 0.08],
+            CODEX_BANNER,
             ASH,
         );
-        self.text(&mut rc, "CODEX", 0.08, 0.07, 0.022);
+        self.text(&mut rc, "CODEX", 0.08, 0.07, font::fit("CODEX", 0.022, CODEX_BANNER[2] - 0.04));
         for (i, w) in WARRIORS.iter().take(8).enumerate() {
             let col = (i % 4) as f32;
             let row = (i / 4) as f32;
@@ -40,10 +46,10 @@ impl Renderer {
                 [0.48, 0.38, 0.28, 0.9],
             );
             self.blit(&mut rc, self.tex(w.portrait), [x + 0.03, y + 0.02, 0.14, 0.18], [1.0; 4]);
-            self.text(&mut rc, w.name, x + 0.02, y + 0.21, 0.012);
-            self.text(&mut rc, w.title, x + 0.02, y + 0.235, 0.010);
+            self.text(&mut rc, w.name, x + 0.02, y + 0.21, font::fit(w.name, 0.012, CODEX_TEXT_W));
+            self.text(&mut rc, w.title, x + 0.02, y + 0.235, font::fit(w.title, 0.010, CODEX_TEXT_W));
         }
-        self.text(&mut rc, "CLICK TO CLOSE", 0.08, 0.90, 0.014);
+        self.text(&mut rc, "CLICK TO CLOSE", 0.08, 0.90, font::fit("CLICK TO CLOSE", 0.014, 0.84));
     }
 
 
@@ -91,4 +97,25 @@ impl Renderer {
         self.draw_fx(&mut rc, game);
     }
 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn codex_text_fits_its_cards_at_every_size() {
+        for (w, h) in [(390.0, 844.0), (1280.0, 800.0), (1920.0, 1080.0)] {
+            font::set_screen(w, h);
+            for wr in WARRIORS.iter().take(8) {
+                for (s, g) in [(wr.name, 0.012), (wr.title, 0.010)] {
+                    let tw = font::text_w(s, font::fit(s, g, CODEX_TEXT_W));
+                    assert!(tw <= CODEX_TEXT_W + 1e-5, "{w}x{h} {s:?} {tw}");
+                }
+            }
+            let tw = font::text_w("CODEX", font::fit("CODEX", 0.022, CODEX_BANNER[2] - 0.04));
+            assert!(0.08 + tw <= CODEX_BANNER[0] + CODEX_BANNER[2] - 0.02 + 1e-5);
+        }
+        font::set_screen(1280.0, 800.0);
+    }
 }
