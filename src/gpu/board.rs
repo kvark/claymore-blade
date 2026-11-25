@@ -172,10 +172,11 @@ impl Renderer {
                     color: [cr, cg, cb, scale],
                     pose: [face.cos(), face.sin(), 0.0, mesh_glow],
                     rim: body.rim,
-                    mat: [0.0; 4],
+                    mat: [0.0, if kind == ArchiveKind::Valefor { nest::YOMA_TOON } else { 0.0 }, 0.0, 0.0],
                     joints: archive_joint_palette(&pose_in),
                 };
-                for locals in [locals, nest::ink_hull(locals)] {
+                let hull = nest::ink_hull_px(locals, nest::hull_px(&u.template_id, u.side));
+                for locals in [locals, hull] {
                     rc.bind(1, &HuntDraw { locals });
                     rc.draw(0, count, 0, 1);
                 }
@@ -277,10 +278,19 @@ pub(super) fn archive_body(kind: ArchiveKind) -> ArchiveBody {
 /// albedo + blood rim read heaviest, ahead of rim-only, wide-only and the
 /// T-posed ifrit mesh.
 pub(super) const YOMA_WIDTH: f32 = 1.4;
-/// Darkens the catalog yoma colour into wet, heavy ink before lighting.
-pub(super) const YOMA_INK: [f32; 3] = [0.5, 0.4, 0.4];
+/// Yoma flesh (C1 settei: dark grey-brown skin): the catalog colour keeps
+/// this much of its chroma around its luminance, then darkens by `YOMA_DARK`,
+/// so blood red is left to the rim.
+pub(super) const YOMA_FLESH_SAT: f32 = 0.22;
+pub(super) const YOMA_DARK: f32 = 0.5;
 /// Blood rim on the yoma silhouette so the dark mass separates from the board.
-pub(super) const YOMA_RIM: [f32; 4] = [0.85, 0.10, 0.08, 0.8];
+pub(super) const YOMA_RIM: [f32; 4] = [0.90, 0.06, 0.05, 0.6];
+
+/// Dark, desaturated yoma flesh from the catalog colour.
+pub(super) fn yoma_flesh(color: [f32; 3]) -> [f32; 3] {
+    let l = 0.2126 * color[0] + 0.7152 * color[1] + 0.0722 * color[2];
+    color.map(|c| (l + (c - l) * YOMA_FLESH_SAT) * YOMA_DARK)
+}
 
 fn yoma_body() -> ArchiveBody {
     ArchiveBody { width: YOMA_WIDTH, glow: 0.0, rim: YOMA_RIM }
@@ -297,7 +307,7 @@ pub(super) fn archive_tint(kind: ArchiveKind, color: [f32; 3]) -> [f32; 3] {
             (color[2] * 1.08 + 0.04).min(1.0),
         ],
         ArchiveKind::Kid => RAKI_TINT,
-        ArchiveKind::Valefor => [color[0] * YOMA_INK[0], color[1] * YOMA_INK[1], color[2] * YOMA_INK[2]],
+        ArchiveKind::Valefor => yoma_flesh(color),
     }
 }
 
@@ -444,8 +454,14 @@ mod archive_look_tests {
         assert!(body.width > 1.2 && body.width <= 1.6, "bulk {}", body.width);
         let cat = [0.54, 0.23, 0.20];
         let ink = archive_tint(ArchiveKind::Valefor, cat);
-        assert!(luma(ink) < luma(cat) * 0.6);
-        assert!(ink[0] > ink[1] && ink[0] > ink[2], "still blood-red");
+        assert!(YOMA_DARK <= 0.5 && (luma(ink) - luma(cat) * YOMA_DARK).abs() < 1e-5);
+        // Dark grey-brown flesh (settei), a trace warm, not salmon: blood red
+        // is reserved for the rim.
+        let chroma = |c: [f32; 3]| c[0].max(c[1]).max(c[2]) - c[0].min(c[1]).min(c[2]);
+        assert!(ink[0] >= ink[1] && ink[1] >= ink[2] - 1e-6, "{ink:?}");
+        assert!(chroma(ink) < chroma(cat) * YOMA_DARK * 0.3, "{ink:?}");
+        // Far darker than Clare's steel, so she stays the brightest figure.
+        assert!(luma(ink) < luma(archive_tint(ArchiveKind::Clare, cat)) * 0.25);
         // Blood rim, not gold or white.
         assert!(body.rim[3] > 0.0 && body.rim[0] > body.rim[1] * 4.0);
         // Players keep a plain silhouette.
