@@ -281,7 +281,7 @@ pub(super) const YOMA_WIDTH: f32 = 1.4;
 /// Yoma flesh (C1 settei: dark grey-brown skin): the catalog colour keeps
 /// this much of its chroma around its luminance, then darkens by `YOMA_DARK`,
 /// so blood red is left to the rim.
-pub(super) const YOMA_FLESH_SAT: f32 = 0.22;
+pub(super) const YOMA_FLESH_SAT: f32 = 0.1;
 pub(super) const YOMA_DARK: f32 = 0.5;
 /// Blood rim on the yoma silhouette so the dark mass separates from the board.
 pub(super) const YOMA_RIM: [f32; 4] = [0.90, 0.06, 0.05, 0.4];

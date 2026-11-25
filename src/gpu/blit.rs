@@ -32,7 +32,8 @@ impl Renderer {
             let mut tint = f.tint;
             tint[3] *= a;
             if f.plate {
-                self.rect(rc, f.plate_rect(), [0.05, 0.04, 0.03, 0.78 * a]);
+                let [w, h] = game.ui.screen;
+                self.manga_caption(rc, f.plate_rect(), a, w, h);
             }
             self.text_tint(rc, &f.text, f.x, f.y, glyph_h, tint);
         }
