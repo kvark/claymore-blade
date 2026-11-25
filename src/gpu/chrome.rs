@@ -15,6 +15,8 @@ pub(crate) const BLOOD_INK: [f32; 4] = [0.20, 0.008, 0.007, 0.95];
 pub(crate) const BLOOD_PLATE: [f32; 4] = [0.075, 0.004, 0.004, 0.96];
 /// Crit splash: fresh blood, the one saturated colour on screen.
 pub(crate) const SPLASH_RED: [f32; 3] = [0.50, 0.008, 0.012];
+/// Kill-only impact wash over the whole scene (frame 0); plain SOLIDs skip it.
+pub(crate) const KILL_WASH: [f32; 4] = [0.16, 0.0, 0.004, 0.09];
 
 impl Renderer {
     /// Bevelled steel frame one pixel wide around `r` (normalized coords).
@@ -149,9 +151,9 @@ impl Renderer {
         let f = s.frame() as f32;
         let fade = 1.0 - 0.3 * f;
         let aspect = h / w.max(1.0);
-        if f == 0.0 {
-            // Impact frame: the whole scene takes a blood wash.
-            self.rect(rc, [0.0, 0.0, 1.0, 1.0], [0.25, 0.0, 0.005, 0.2]);
+        if f == 0.0 && s.kill {
+            // Kill impact frame: a soft blood wash over the whole scene.
+            self.rect(rc, [0.0, 0.0, 1.0, 1.0], KILL_WASH);
         }
         let blot = self.tex("kenney/fx/scorch.png");
         let red = |a: f32| [SPLASH_RED[0], SPLASH_RED[1], SPLASH_RED[2], a * fade];
@@ -214,5 +216,7 @@ mod tests {
             );
             assert!(luma(blood) < 0.06, "dried blood, not candy red {blood:?}");
         }
+        // The kill wash is a soft tint (was [0.25, 0, 0.005, 0.2] on every SOLID).
+        assert!(KILL_WASH[3] <= 0.1 && KILL_WASH[0] < 0.25 && KILL_WASH[0] > KILL_WASH[1] * 10.0);
     }
 }

@@ -72,6 +72,8 @@ pub struct Splash {
     pub y: f32,
     /// Seconds left (wall clock, so hitstop never stretches it).
     pub life: f32,
+    /// The hit killed its target: only kills get the frame-0 scene wash.
+    pub kill: bool,
 }
 
 /// Crit splash length: three held frames over a quarter second.
@@ -223,6 +225,10 @@ impl Fx {
         };
         self.add_trauma(trauma);
         self.flash = (self.flash + flash).min(0.45);
+        if kind == "death" {
+            // Death events land just before their SOLID outcome line.
+            self.splash = Some(Splash { x, y, life: SPLASH_LIFE, kill: true });
+        }
         if kind == "hit" || kind == "death" {
             self.hitstop = self.hitstop.max(0.05);
         }
@@ -287,7 +293,10 @@ impl Fx {
             _ => return,
         };
         if matches!(kind, "solid" | "hit" | "death") {
-            self.splash = Some(Splash { x, y, life: SPLASH_LIFE });
+            // Keep the kill flag from this same beat's death event.
+            let kill = kind == "death"
+                || self.splash.is_some_and(|s| s.kill && s.life >= SPLASH_LIFE - 1e-4);
+            self.splash = Some(Splash { x, y, life: SPLASH_LIFE, kill });
         }
         self.floaters.push(Floater {
             x: x - 0.03,
@@ -491,7 +500,7 @@ mod tests {
         }
         fx.emit_outcome(0.4, 0.5, "solid", 14);
         let s = fx.splash.expect("SOLID is the crit tier");
-        assert_eq!((s.x, s.y, s.frame()), (0.4, 0.5, 0));
+        assert_eq!((s.x, s.y, s.frame(), s.kill), (0.4, 0.5, 0, false));
         // Wall-clock: a hitstop (sim at 15%) must not stretch it.
         fx.hitstop = 1.0;
         let mut t = 0.0;
@@ -504,6 +513,20 @@ mod tests {
         assert!(t >= 0.2 && t <= 0.3 + 1e-3, "{t}");
         frames.dedup();
         assert_eq!(frames, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn only_a_kill_marks_the_splash_for_the_scene_wash() {
+        // combat_flow order: the death event's emit_hit, then the SOLID line.
+        let mut fx = Fx::default();
+        fx.emit_hit(0.3, 0.4, 20, "death");
+        fx.emit_outcome(0.3, 0.38, "solid", 20);
+        assert!(fx.splash.unwrap().kill);
+        // A later plain SOLID (next beat) is not a kill.
+        fx.tick(0.1);
+        fx.emit_hit(0.6, 0.4, 5, "hit");
+        fx.emit_outcome(0.6, 0.38, "solid", 5);
+        assert!(!fx.splash.unwrap().kill);
     }
 
     #[test]
