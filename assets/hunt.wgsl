@@ -81,6 +81,12 @@ const VIG_STRENGTH: f32 = 0.92;
 const VIG_IN: f32 = 0.45;
 const VIG_OUT: f32 = 1.5;
 const DITHER: f32 = 0.04;
+// Yoma cel bands (fighter mat.y = strength): light factor thresholds and the
+// three stepped light levels, so the body reads as inked shadow masses.
+const TOON_LO: f32 = 0.38;
+const TOON_HI: f32 = 0.80;
+const TOON_SOFT: f32 = 0.035;
+const TOON_LEVELS: vec3<f32> = vec3<f32>(0.20, 0.58, 1.0);
 
 fn unpack_joints(raw: u32) -> vec4<u32> {
     return (vec4<u32>(raw) >> vec4<u32>(0u, 8u, 16u, 24u)) & vec4<u32>(0xFFu);
@@ -162,7 +168,8 @@ fn vs_main(v: Vertex) -> VSOut {
         let push = sn / max(length(sn), 0.3) * locals.mat.y;
         o.clip = o.clip + vec4<f32>(push * 2.0 / max(globals.screen.xy, vec2<f32>(1.0)), locals.mat.z, 0.0);
     }
-    o.color = vec4<f32>(lit, 1.0);
+    // w: albedo luminance, so the fragment stage can recover the light factor.
+    o.color = vec4<f32>(lit, dot(locals.color.xyz, vec3<f32>(0.2126, 0.7152, 0.0722)));
     let inv = 1.0 / max(locals.mat.w, 0.0001);
     o.rel = vec4<f32>((p - globals.depth_origin_scale.xyz) * inv, globals.screen.z);
     o.normal = n;
@@ -256,7 +263,13 @@ fn surface(v: VSOut) -> vec4<f32> {
         let rim_sat = (rim_hi - min(v.rim.r, min(v.rim.g, v.rim.b))) / max(rim_hi, 0.001);
         let silver = (1.0 - smoothstep(0.2, 0.4, rim_sat)) * step(0.001, v.rim.w);
         let band = smoothstep(0.5, 0.5 + max(fw_edge, 0.04), edge) * max(v.rim.w, 0.0);
-        let lit = grade(v.color.xyz, 0.2);
+        // Cel bands (yoma): step the per-vertex light factor into 3 levels.
+        let shade = dot(v.color.xyz, vec3<f32>(0.2126, 0.7152, 0.0722)) / max(v.color.w, 0.001);
+        let t1 = smoothstep(TOON_LO - TOON_SOFT, TOON_LO + TOON_SOFT, shade);
+        let t2 = smoothstep(TOON_HI - TOON_SOFT, TOON_HI + TOON_SOFT, shade);
+        let toon = mix(mix(TOON_LEVELS.x, TOON_LEVELS.y, t1), TOON_LEVELS.z, t2);
+        let cel = v.color.xyz * (toon / max(shade, 0.001));
+        let lit = grade(mix(v.color.xyz, cel, clamp(v.mat.y, 0.0, 1.0)), 0.2);
         // Warm / blood rims: additive glow inside the ink, hue kept.
         var c = min(lit + v.rim.rgb * band * 0.55, vec3<f32>(1.0));
         // Silver rim (Clare): roll the over-bright body down to cold steel so

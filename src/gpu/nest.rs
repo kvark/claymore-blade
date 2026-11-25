@@ -51,8 +51,35 @@ pub(super) fn torch_flicker(time: f32) -> f32 {
 
 /// The ink-hull redraw of a fighter: same pose and skin, drawn black.
 pub(super) fn ink_hull(body: HuntLocal) -> HuntLocal {
-    HuntLocal { rim: NO_RIM, mat: [MAT_INK, INK_HULL_PX, INK_HULL_DEPTH, 1.0], ..body }
+    ink_hull_px(body, INK_HULL_PX)
 }
+
+/// Ink hull `px` screen pixels wide (see `hull_px`).
+pub(super) fn ink_hull_px(body: HuntLocal, px: f32) -> HuntLocal {
+    HuntLocal { rim: NO_RIM, mat: [MAT_INK, px, INK_HULL_DEPTH, 1.0], ..body }
+}
+
+/// Yoma ink hulls, heavier than the party's `INK_HULL_PX` and growing with
+/// tier: the bigger the monster, the heavier the brush.
+pub(super) const YOMA_HULL_PX: f32 = 2.1;
+pub(super) const LONG_YOMA_HULL_PX: f32 = 2.6;
+pub(super) const AWAKENED_HULL_PX: f32 = 3.2;
+
+/// Ink hull width for a fighter: party 1.3 px, common < Long < Awakened yoma.
+pub(super) fn hull_px(template_id: &str, side: Side) -> f32 {
+    if side != Side::Enemy {
+        return INK_HULL_PX;
+    }
+    match template_id {
+        "yoma_stretch" => LONG_YOMA_HULL_PX,
+        "ophelia" | "worm" => AWAKENED_HULL_PX,
+        _ => YOMA_HULL_PX,
+    }
+}
+
+/// Fighter `mat.y`: cel-band strength in hunt.wgsl (yoma only; the party
+/// keeps smooth shading so Clare's silver reads clean).
+pub(super) const YOMA_TOON: f32 = 1.0;
 
 /// `HuntLocal::mat` for a nest / terrain draw.
 pub(super) fn material(kind: f32, size: f32, combat: &CombatState, seed: f32) -> [f32; 4] {
@@ -233,6 +260,28 @@ mod shader_tests {
         assert_eq!(hull.mat[0], MAT_INK);
         // A thin contour (about a pixel) pushed behind, never in front of, the body.
         assert!(hull.mat[1] > 0.5 && hull.mat[1] < 2.5 && hull.mat[2] > 0.0 && hull.mat[2] < 0.01);
+    }
+
+    #[test]
+    fn yoma_ink_is_heavier_than_the_party_and_grows_with_tier() {
+        let party = hull_px("clare", Side::Player);
+        assert_eq!(party, INK_HULL_PX);
+        assert_eq!(hull_px("raki", Side::Player), party);
+        // A player-side template id never borrows the yoma brush.
+        assert_eq!(hull_px("yoma", Side::Player), party);
+        let common = hull_px("yoma", Side::Enemy);
+        let long = hull_px("yoma_stretch", Side::Enemy);
+        let awakened = hull_px("ophelia", Side::Enemy);
+        assert!(party < common && common < long && long < awakened);
+        assert_eq!(hull_px("worm", Side::Enemy), awakened);
+        assert_eq!(hull_px("unknown", Side::Enemy), common);
+        // Still an outline, not a blob: a few pixels at most.
+        assert!(awakened <= 4.0);
+        let h = ink_hull_px(HuntLocal { world: [0.0; 4], color: [0.0; 4], pose: [0.0; 4], rim: [1.0; 4], mat: [0.0; 4], joints: [[0.0; 12]; 8] }, long);
+        assert_eq!(h.mat, [MAT_INK, long, INK_HULL_DEPTH, 1.0]);
+        assert_eq!(h.rim, NO_RIM);
+        let hunt = include_str!("../../assets/hunt.wgsl");
+        assert!(hunt.contains("v.mat.y"), "fighter cel strength read from mat.y");
     }
 
     #[test]
