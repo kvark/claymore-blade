@@ -9,13 +9,10 @@ impl Renderer {
         let full = [0.0, 0.0, 1.0, 1.0];
         self.blit_toned(&mut rc, self.tex("art/title.jpg"), self.sampler, full, full, [1.0; 4], chrome::RESULT_ART_TONE);
         self.tone_shade(&mut rc, full, 0.3, chrome::TONE_INK, w, h);
-        let plate = chrome::RESULT_PLATE;
-        self.rect(&mut rc, plate, [chrome::INK[0], chrome::INK[1], chrome::INK[2], 0.92]);
-        self.tone_shade(&mut rc, plate, 0.35, chrome::TONE_ASH, w, h);
-        self.ink_panel(&mut rc, plate, w, h);
+        self.ink_plate(&mut rc, chrome::RESULT_PLATE, w, h);
         self.text(&mut rc, &game.result_title, 0.12, 0.34, 0.022);
         self.rect(&mut rc, [0.12, 0.34 + 0.022 + 0.014, 0.30, 2.0 / h], chrome::BLOOD_INK);
-        self.text_tint(&mut rc, &game.result_body, 0.12, 0.44, 0.014, [0.70, 0.68, 0.64, 1.0]);
+        self.text_tint(&mut rc, &game.result_body, 0.12, 0.44, 0.014, chrome::ASH_BODY);
         self.ink_btn(&mut rc, hud::result_ok(), "RETURN", false, false, false, true, w, h);
         self.draw_fx(&mut rc, game);
     }
@@ -49,7 +46,7 @@ impl Renderer {
     }
 
 
-    pub(super) fn draw_scene(&self, pass: &mut gpu::RenderCommandEncoder, game: &Game, _w: f32, _h: f32) {
+    pub(super) fn draw_scene(&self, pass: &mut gpu::RenderCommandEncoder, game: &Game, w: f32, h: f32) {
         let mut rc = pass.with(&self.flat);
         let art = match game.scene.as_ref().map(|s| s.id) {
             Some(crate::dialog::SceneId::OpheliaIntro) => "art/battle-gonal.jpg",
@@ -61,39 +58,27 @@ impl Renderer {
         };
         self.blit(&mut rc, self.tex(art), [0.0, 0.0, 1.0, 1.0], [0.45, 0.42, 0.38, 1.0]);
         self.rect(&mut rc, [0.0, 0.0, 1.0, 1.0], [0.04, 0.03, 0.02, 0.55]);
-        self.blit_px(
-            &mut rc,
-            self.tex("kenney/ui/panel-brown.png"),
-            [0.08, 0.22, 0.70, 0.42],
-            [0.50, 0.40, 0.30, 0.92],
-        );
+        // Same C2/C4 ink as the result screen; the art stays as it was.
+        self.ink_plate(&mut rc, chrome::SCENE_PLATE, w, h);
         if let Some(scene) = game.scene.as_ref() {
             if let Some(line) = scene.current() {
-                self.text(&mut rc, line.speaker, 0.12, 0.28, 0.016);
+                if !line.speaker.is_empty() {
+                    self.text(&mut rc, line.speaker, 0.12, 0.28, 0.016);
+                    let u = chrome::caption_plate(line.speaker, 0.12, 0.28, 0.016);
+                    self.rect(&mut rc, [0.12, 0.28 + 0.016 + 0.010, u[2] + 0.010, 2.0 / h], chrome::BLOOD_INK);
+                }
                 // wrap-ish: single line may be long; draw once
-                self.text(&mut rc, line.text, 0.12, 0.38, 0.014);
+                self.text_tint(&mut rc, line.text, 0.12, 0.38, 0.014, chrome::ASH_BODY);
                 let step = format!("{}/{}", scene.step + 1, scene.lines().len());
-                self.text(&mut rc, &step, 0.12, 0.52, 0.011);
+                self.text_tint(&mut rc, &step, 0.12, 0.52, 0.011, chrome::ASH_BODY);
             }
             if scene.at_end() {
                 let choices = scene.choices();
                 if choices.len() >= 1 {
-                    self.kenney_btn(
-                        &mut rc,
-                        "kenney/ui/button.png",
-                        crate::hud::scene_yes(),
-                        choices[0].label,
-                        true,
-                    );
+                    self.ink_btn(&mut rc, crate::hud::scene_yes(), choices[0].label, true, false, false, true, w, h);
                 }
                 if choices.len() >= 2 {
-                    self.kenney_btn(
-                        &mut rc,
-                        "kenney/ui/button-grey.png",
-                        crate::hud::scene_no(),
-                        choices[1].label,
-                        false,
-                    );
+                    self.ink_btn(&mut rc, crate::hud::scene_no(), choices[1].label, false, false, false, true, w, h);
                 }
             } else {
                 self.prompt(&mut rc, "kenney/prompt/space.png", 0.12, 0.84, 0.05);

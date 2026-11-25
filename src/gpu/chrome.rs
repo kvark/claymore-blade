@@ -64,7 +64,32 @@ pub(crate) fn caption_plate(text: &str, x: f32, y: f32, glyph_h: f32) -> [f32; 4
     [x - pad_x, y - pad_y, text_w + pad_x * 2.0, glyph_h + pad_y * 2.0]
 }
 
+/// Ink button label size: 0.024 tall, shrunk so long labels (scene choices
+/// like WALK WITH US) keep a margin inside the plate instead of spilling.
+pub(crate) fn btn_glyph_h(label: &str, w: f32) -> f32 {
+    let n = label.chars().count().max(1) as f32;
+    0.024f32.min(w * 0.88 / (0.7 * ((n - 1.0) * 0.85 + 1.0)))
+}
+
+/// Story-scene dialogue plate `[x, y, w, h]` (speaker, line, step count).
+pub(crate) const SCENE_PLATE: [f32; 4] = [0.08, 0.22, 0.70, 0.42];
+/// Ash for dialogue / result body type, a step under the bone titles.
+pub(crate) const ASH_BODY: [f32; 4] = [0.70, 0.68, 0.64, 1.0];
+
 impl Renderer {
+    /// C2 manga ink plate: translucent ink, ash dots on its bottom, panel frame.
+    pub(super) fn ink_plate(
+        &self,
+        rc: &mut impl gpu::traits::RenderPipelineEncoder<BufferPiece = gpu::BufferPiece>,
+        r: [f32; 4],
+        w: f32,
+        h: f32,
+    ) {
+        self.rect(rc, r, [INK[0], INK[1], INK[2], 0.92]);
+        self.tone_shade(rc, r, 0.35, TONE_ASH, w, h);
+        self.ink_panel(rc, r, w, h);
+    }
+
     /// C2 manga panel frame around an ink plate `r`: steel edge, black gap,
     /// bone inner hairline with a 45° cut corner (top right).
     pub(super) fn ink_panel(
@@ -196,7 +221,7 @@ impl Renderer {
                 );
             }
         }
-        let glyph_h = 0.024;
+        let glyph_h = btn_glyph_h(label, r.w);
         let glyph_w = glyph_h * 0.7;
         let n = label.chars().count() as f32;
         let text_w = if n > 0.0 {
@@ -348,6 +373,23 @@ pub(crate) fn stroke_offsets(w: f32, h: f32) -> [[f32; 2]; 8] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scene_plate_and_choice_labels_fit() {
+        let [x, y, w, h] = SCENE_PLATE;
+        assert!(x >= 0.0 && y >= 0.0 && x + w <= 1.0 && y + h <= 1.0);
+        for r in [crate::hud::scene_yes(), crate::hud::scene_no()] {
+            assert!(r.y > y + h, "choices below the plate");
+        }
+        // Short labels keep the combat size; long ones shrink inside the plate.
+        assert_eq!(btn_glyph_h("CUT", 0.16), 0.024);
+        for label in ["WALK WITH US", "NOT YET", "RETURN"] {
+            let g = btn_glyph_h(label, 0.16);
+            let n = label.len() as f32;
+            let text_w = g * 0.7 * ((n - 1.0) * 0.85 + 1.0);
+            assert!(text_w <= 0.16 * 0.88 + 1e-6 && g >= 0.018, "{label}: {g}");
+        }
+    }
 
     #[test]
     fn result_plate_is_on_screen_and_clear_of_return() {
