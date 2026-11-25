@@ -41,13 +41,7 @@ impl Floater {
     /// Normalized `[x, y, w, h]` of the ink plate behind a plated hint.
     pub fn plate_rect(&self) -> [f32; 4] {
         let glyph_h = self.glyph_h();
-        let glyph_w = glyph_h * 0.7;
-        let n = self.text.chars().filter(|c| *c != '\n').count() as f32;
-        let text_w = if n > 0.0 {
-            glyph_w * ((n - 1.0) * 0.85 + 1.0)
-        } else {
-            0.0
-        };
+        let text_w = crate::font::text_w(&self.text, glyph_h);
         let pad_x = 0.010;
         let pad_y = 0.006;
         [self.x - pad_x, self.y - pad_y, text_w + pad_x * 2.0, glyph_h + pad_y * 2.0]

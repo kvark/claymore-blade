@@ -296,7 +296,7 @@ pub fn cutin_tone(kind: CutInKind, strength: f32, w: f32, h: f32, panel_top: f32
     let (rgba, cover, band) = match kind {
         CutInKind::Claw => ([0.02, 0.0, 0.004, 0.95 * k], 0.6, CLAW_TONE_BAND),
         // Sparse silver dots on the steel-ink rim (dark dots vanished there).
-        CutInKind::Flash => ([0.30, 0.32, 0.36, 0.4 * k], 0.22, TONE_BAND),
+        CutInKind::Flash => ([0.30, 0.32, 0.36, 0.3 * k], 0.16, TONE_BAND),
     };
     Some((rgba, [tone_pitch(h), cover * k, band, aspect]))
 }
@@ -586,6 +586,8 @@ mod tests {
         // Claw: ink-black dots; FLASH: silver print dots on its steel-ink rim.
         assert!(claw[..3].iter().all(|c| *c < 0.05));
         assert!(flash[..3].iter().all(|c| *c > 0.2 && *c < 0.5));
+        // Sparse along the top rim: light silver dots, low coverage.
+        assert!(flash[3] <= 0.3 && ft[1] <= 0.16);
         assert!(flash[3] < claw[3] && ft[1] < ct[1]);
         // Dots never merge into a solid fill (r = 0.56 * sqrt(cover) < 0.5).
         assert!(0.56 * ct[1].sqrt() < 0.5);
