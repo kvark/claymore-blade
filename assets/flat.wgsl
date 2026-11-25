@@ -54,9 +54,13 @@ fn fs_main(v: VSOut) -> @location(0) vec4<f32> {
     if (v.tone.y <= 0.0) {
         return texel * v.tint;
     }
-    let e = min(min(v.uv.x, 1.0 - v.uv.x) * v.tone.w, min(v.uv.y, 1.0 - v.uv.y));
+    // Bottom band is a third as deep (like the wash's bottom bands), so the
+    // board's near row above the action panel stays clean.
+    let e = min(min(v.uv.x, 1.0 - v.uv.x) * v.tone.w, min(v.uv.y, (1.0 - v.uv.y) * 3.0));
     let cov = (1.0 - smoothstep(0.0, v.tone.z, e)) * v.tone.y;
     let r = 0.56 * sqrt(cov);
-    let ink = 1.0 - smoothstep(r - aa, r + aa, d);
+    // Fade dots smaller than the AA width to nothing, so zero coverage is
+    // truly clean (no stray single-pixel specks across the board).
+    let ink = (1.0 - smoothstep(r - aa, r + aa, d)) * clamp(r / aa, 0.0, 1.0);
     return vec4<f32>(v.tint.rgb, v.tint.a * ink);
 }

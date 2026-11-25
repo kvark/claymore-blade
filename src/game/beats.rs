@@ -294,14 +294,48 @@ pub fn cutin_tone(kind: CutInKind, strength: f32, w: f32, h: f32, panel_top: f32
     // The claw rim is already near-black, so its tone band reaches further
     // in, where the dots land on the red tint and read.
     let (rgba, cover, band) = match kind {
-        CutInKind::Claw => ([0.02, 0.0, 0.004, 0.95 * k], 0.6, TONE_BAND * 1.5),
+        CutInKind::Claw => ([0.02, 0.0, 0.004, 0.95 * k], 0.6, CLAW_TONE_BAND),
         CutInKind::Flash => ([0.03, 0.03, 0.035, 0.55 * k], 0.42, TONE_BAND),
     };
     Some((rgba, [tone_pitch(h), cover * k, band, aspect]))
 }
 
+/// Rows the screentone quad is sliced into so it can skip the board.
+pub const TONE_ROWS: usize = 64;
+
+/// Screentone pieces as `(screen rect, uv rect)` over `[0, 0, 1, panel_top]`:
+/// the rect cut into `TONE_ROWS` rows, each minus the keep-out rects on that
+/// row (board cells, units, caption), with uvs of the full rect so the dot
+/// coverage stays continuous across pieces. Dots never land on the board.
+pub fn tone_pieces(keep_out: &[Rect], panel_top: f32) -> Vec<(Rect, Rect)> {
+    let mut out = Vec::new();
+    let row = panel_top / TONE_ROWS as f32;
+    for i in 0..TONE_ROWS {
+        let (y0, y1) = (row * i as f32, row * (i + 1) as f32);
+        let mut blocked: Vec<(f32, f32)> = keep_out
+            .iter()
+            .filter(|r| overlaps_y(r, y0, y1))
+            .map(|r| (r[0].max(0.0), (r[0] + r[2]).min(1.0)))
+            .filter(|(a, b)| b > a)
+            .collect();
+        blocked.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut x = 0.0_f32;
+        for (a, b) in blocked.into_iter().chain(std::iter::once((1.0, 1.0))) {
+            if a > x {
+                let uv = [x, y0 / panel_top, a - x, row / panel_top];
+                out.push(([x, y0, a - x, row], uv));
+            }
+            x = x.max(b);
+        }
+    }
+    out
+}
+
 /// Depth of the screentone band (fraction of the cut-in rect height).
 pub const TONE_BAND: f32 = 0.30;
+/// Claw tone band: a little deeper than FLASH's so dots reach the red tint,
+/// but shallow enough that none land on the board.
+pub const CLAW_TONE_BAND: f32 = 0.35;
 
 /// Keep-out rects for the cut-in streaks: one per board cell (its projected
 /// top face, padded) plus a taller box over every standing unit, all in
@@ -544,11 +578,33 @@ mod tests {
         // Dots never merge into a solid fill (r = 0.56 * sqrt(cover) < 0.5).
         assert!(0.56 * ct[1].sqrt() < 0.5);
         assert!((ct[3] - 1280.0 / 680.0).abs() < 1e-4);
+        assert_eq!((ct[2], ft[2]), (CLAW_TONE_BAND, TONE_BAND));
         // Pitch is whole-screen pixels, at least 4 px, growing with resolution.
         assert_eq!(tone_pitch(600.0), 4.0);
         assert!(tone_pitch(800.0) > 5.0 && tone_pitch(1080.0) > tone_pitch(800.0));
         let (_, half) = cutin_tone(CutInKind::Claw, 0.5, 1280.0, 800.0, 0.85).unwrap();
         assert!(half[1] < ct[1]);
+    }
+
+    #[test]
+    fn tone_pieces_tile_the_rim_and_skip_the_board() {
+        let board = [0.30, 0.20, 0.42, 0.60];
+        let caption = [0.45, 0.10, 0.10, 0.04];
+        let pieces = tone_pieces(&[board, caption], 0.85);
+        let mut area = 0.0;
+        for (r, uv) in &pieces {
+            assert!(!intersects(&[r[0], r[1], r[2], r[3], 1.0], &board), "tone on the board {r:?}");
+            assert!(!intersects(&[r[0], r[1], r[2], r[3], 1.0], &caption));
+            // uv is the piece's place in the full rect, so coverage is seamless.
+            assert!((uv[0] - r[0]).abs() < 1e-6 && (uv[1] * 0.85 - r[1]).abs() < 1e-5);
+            assert!((uv[2] - r[2]).abs() < 1e-6 && (uv[3] * 0.85 - r[3]).abs() < 1e-5);
+            area += r[2] * r[3];
+        }
+        // Everything off the blockers is still covered (rows snap to 1/64).
+        let row = 0.85 / TONE_ROWS as f32;
+        let free = 0.85 - 0.42 * 0.60 - 0.10 * 0.04;
+        assert!(area <= free + 1e-4 && area > free - 0.42 * 2.0 * row - 0.1 * 2.0 * row);
+        assert_eq!(tone_pieces(&[], 0.85).len(), TONE_ROWS);
     }
 
     fn intersects(l: &[f32; 5], r: &Rect) -> bool {

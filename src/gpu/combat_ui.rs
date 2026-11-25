@@ -300,7 +300,8 @@ impl Renderer {
             CutInKind::Flash => (beats::flash_wash(k, panel_top), beats::FLASH_STREAK),
         };
         // Print screentone over the wash, ink dots densest at the screen rim.
-        let screen = [0.0, 0.0, 1.0, panel_top];
+        let keep_out = game.cutin_keep_out();
+        let pieces = beats::tone_pieces(&keep_out, panel_top);
         let tone = |kind: CutInKind, k: f32| beats::cutin_tone(kind, k, w, h, panel_top);
         // During a handoff the old cut-in's wash fades out as the new one fades in.
         let t = cut.takeover(game.fx.time);
@@ -311,7 +312,9 @@ impl Renderer {
                 self.rect(rc, r, c);
             }
             if let Some((tint, dots)) = tone(hand.kind, k * (1.0 - t)) {
-                self.tone_rect(rc, screen, tint, dots);
+                for (r, uv) in &pieces {
+                    self.tone_rect(rc, *r, *uv, tint, dots);
+                }
             }
             ink = std::array::from_fn(|i| old[i] + (ink[i] - old[i]) * t);
             if let Some(prev) = combat.units.iter().find(|u| u.id == hand.unit_id) {
@@ -323,9 +326,10 @@ impl Renderer {
             self.rect(rc, r, c);
         }
         if let Some((tint, dots)) = tone(cut.kind, k * t) {
-            self.tone_rect(rc, screen, tint, dots);
+            for (r, uv) in &pieces {
+                self.tone_rect(rc, *r, *uv, tint, dots);
+            }
         }
-        let keep_out = game.cutin_keep_out();
         for l in beats::speed_lines(k, game.fx.time, focus, w / h.max(1.0), &keep_out) {
             self.rect(rc, [l[0], l[1], l[2], l[3]], [ink[0], ink[1], ink[2], l[4]]);
         }
