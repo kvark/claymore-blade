@@ -20,8 +20,8 @@ path = "src/main.rs"
 default = []
 
 [dependencies]
-blade-graphics = { git = "https://github.com/kvark/blade", package = "blade-graphics", rev = "56666fcd12f843afcd0a124e9943c9565cec3e51" }
-blade-macros = { git = "https://github.com/kvark/blade", package = "blade-macros", rev = "56666fcd12f843afcd0a124e9943c9565cec3e51" }
+blade-graphics = { git = "https://github.com/kvark/blade", package = "blade-graphics", rev = "9e563d7b6251c07ab8f3c01fa1c50833fba895ee" }
+blade-macros = { git = "https://github.com/kvark/blade", package = "blade-macros", rev = "9e563d7b6251c07ab8f3c01fa1c50833fba895ee" }
 bytemuck = { version = "1", features = ["derive"] }
 glam = { version = "0.30", features = ["mint"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
