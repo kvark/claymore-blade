@@ -69,7 +69,7 @@ impl Renderer {
             rc.draw(0, self.prism_count, 0, 1);
         }
         let preview = game.preview_zone();
-        let threat = game.threat_zone();
+        let threat = game.threat_overlay();
         let skill_on = game.ui.selected_skill.is_some();
         for (hex, terrain) in &combat.terrain {
             let height = terrain_height(*terrain, size);
@@ -81,12 +81,16 @@ impl Renderer {
                     [0.18, 0.22, 0.13]
                 };
             }
-            // Enemy claw tell — blood/danger, not gold (overrides move tint).
-            if threat.iter().any(|h| h.q == hex.q && h.r == hex.r) {
-                color = [0.36, 0.07, 0.09];
-            }
             if game.ui.hover == Some(*hex) {
                 color = [0.34, 0.32, 0.28]; // dust/ash, not gold
+            }
+            // Forecasts leave terrain readable; only a committed strike
+            // stains the board. This warning wins over the hover tint.
+            if threat
+                .as_ref()
+                .is_some_and(|(committed, cells)| *committed && cells.contains(hex))
+            {
+                color = [0.36, 0.07, 0.09];
             }
             rc.bind(
                 1,
